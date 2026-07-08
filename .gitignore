@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Compiled binaries and debug artifacts
+a.out
+hello
+home3
+nik
+*.o
+*.dSYM/
+
+# Editor settings
+.vscode/
