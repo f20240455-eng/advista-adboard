@@ -3,12 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="AdVista — India's marketplace for leasing billboard and outdoor ad spaces from fuel stations, highways and malls." />
   <title>AdVista — Lease Billboard Spaces That Sell</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪧</text></svg>" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <header class="hero">
     <div class="container">
+      <span class="eyebrow">🇮🇳 120+ verified sites across 6 cities</span>
       <h1>Your brand, on the <span class="highlight">busiest roads</span> in India</h1>
       <p class="sub">
         AdVista connects fuel stations, highways and malls that own premium billboard
@@ -27,6 +30,18 @@
       </div>
     </div>
   </header>
+
+  <div class="logo-strip">
+    <div class="container">
+      <span class="strip-label">Campaigns running with</span>
+      <span class="wordmark">Brightwave</span>
+      <span class="wordmark">FuelMax</span>
+      <span class="wordmark">UrbanKart</span>
+      <span class="wordmark">NovaTel</span>
+      <span class="wordmark">Transline</span>
+      <span class="wordmark">Skyline Realty</span>
+    </div>
+  </div>
 
   <section class="section">
     <div class="container">
@@ -57,7 +72,7 @@
     </div>
   </section>
 
-  <section class="section" style="background: var(--bg-soft);">
+  <section class="section" style="background: var(--bg-soft); border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft);">
     <div class="container">
       <h2>How it works</h2>
       <p class="section-sub">From browsing to a live campaign in four steps.</p>
@@ -91,13 +106,46 @@
       <h2>Featured spaces</h2>
       <p class="section-sub">A taste of what's live right now.</p>
       <div class="card-grid" id="featured-grid"></div>
-      <div style="text-align:center; margin-top: 32px;">
+      <div style="text-align:center; margin-top: 34px;">
         <a href="/listings.html" class="btn btn-outline">See all listings →</a>
       </div>
     </div>
   </section>
 
-  <section class="section">
+  <section class="section" style="padding-top: 0;">
+    <div class="container">
+      <h2>What our partners say</h2>
+      <p class="section-sub">Space owners and brands who moved their outdoor buying online.</p>
+      <div class="t-grid">
+        <div class="t-card">
+          <div class="rating">★★★★★</div>
+          <p class="quote">We filled our NH-8 hoarding in nine days. Before AdVista it took a month of phone calls and two agents taking a cut.</p>
+          <div class="who">
+            <div class="avatar">RM</div>
+            <div><div class="name">Rajesh Malhotra</div><div class="role">Owner, Highway Fuels Pvt Ltd</div></div>
+          </div>
+        </div>
+        <div class="t-card">
+          <div class="rating">★★★★★</div>
+          <p class="quote">Booked twelve sites across three cities for our festive launch without leaving my desk. The availability calendar alone saved us weeks.</p>
+          <div class="who">
+            <div class="avatar">AI</div>
+            <div><div class="name">Ananya Iyer</div><div class="role">Marketing Head, UrbanKart</div></div>
+          </div>
+        </div>
+        <div class="t-card">
+          <div class="rating">★★★★☆</div>
+          <p class="quote">The daily traffic numbers on every listing made budget sign-off painless. Finance stopped asking "but how many people see it?"</p>
+          <div class="who">
+            <div class="avatar">VS</div>
+            <div><div class="name">Vikram Shah</div><div class="role">Founder, NovaTel</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top: 0;">
     <div class="container">
       <div class="cta-band">
         <h2>Own a fuel station or roadside property?</h2>
@@ -107,17 +155,14 @@
     </div>
   </section>
 
-  <footer>
-    <div class="container">
-      🪧 AdVista Outdoor Media · Making every kilometre count · demo build
-    </div>
-  </footer>
+  <footer></footer>
 
   <script src="/shared.js"></script>
   <script>
     (async () => {
       const user = await getMe();
       renderNav(user, "home");
+      renderFooter();
       try {
         const { listings } = await api("/api/listings");
         document.getElementById("featured-grid").innerHTML =

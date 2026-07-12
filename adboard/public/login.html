@@ -4,11 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Log in — AdVista</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪧</text></svg>" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div class="auth-wrap">
     <div class="panel">
+      <div class="auth-logo">🪧</div>
       <h1 id="heading">Welcome back</h1>
       <p class="sub" id="subheading">Log in to your AdVista account</p>
       <div class="form-error" id="err"></div>
@@ -40,8 +42,11 @@
       </p>
 
       <div class="demo-note">
-        <strong>Demo accounts</strong> — client: <code>client@demo.com</code> ·
-        owner: <code>owner@demo.com</code> · password: <code>demo123</code>
+        <strong>Just exploring?</strong> Jump straight in with a demo account:
+        <div class="demo-btns">
+          <button type="button" class="btn btn-outline btn-small" id="demo-client">📣 Advertiser demo</button>
+          <button type="button" class="btn btn-outline btn-small" id="demo-owner">🏪 Owner demo</button>
+        </div>
       </div>
     </div>
   </div>
@@ -114,6 +119,16 @@
     document.addEventListener("keydown", (e) => {
       if (e.key === "Enter") el("submit").click();
     });
+
+    function demoLogin(email) {
+      mode = "login";
+      renderMode();
+      el("email").value = email;
+      el("password").value = "demo123";
+      el("submit").click();
+    }
+    el("demo-client").addEventListener("click", () => demoLogin("client@demo.com"));
+    el("demo-owner").addEventListener("click", () => demoLogin("owner@demo.com"));
 
     (async () => {
       renderNav(await getMe(), "login");

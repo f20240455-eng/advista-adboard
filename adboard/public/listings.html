@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Browse Ad Spaces — AdVista</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪧</text></svg>" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -23,6 +24,17 @@
         <option value="250000">Under ₹2.5L/mo</option>
         <option value="400000">Under ₹4L/mo</option>
       </select>
+      <button class="btn btn-outline btn-small" id="f-reset">Reset</button>
+    </div>
+
+    <div class="results-bar">
+      <span class="count" id="count"></span>
+      <select id="f-sort">
+        <option value="featured">Sort: Featured</option>
+        <option value="price-asc">Price: low to high</option>
+        <option value="price-desc">Price: high to low</option>
+        <option value="traffic-desc">Traffic: highest first</option>
+      </select>
     </div>
 
     <div class="card-grid" id="grid"></div>
@@ -31,9 +43,7 @@
     </div>
   </div>
 
-  <footer>
-    <div class="container">🪧 AdVista Outdoor Media · demo build</div>
-  </footer>
+  <footer></footer>
 
   <script src="/shared.js"></script>
   <script>
@@ -42,8 +52,10 @@
       city: document.getElementById("f-city"),
       type: document.getElementById("f-type"),
       price: document.getElementById("f-price"),
+      sort: document.getElementById("f-sort"),
       grid: document.getElementById("grid"),
       empty: document.getElementById("empty"),
+      count: document.getElementById("count"),
     };
     let filtersLoaded = false;
 
@@ -61,8 +73,14 @@
         filtersLoaded = true;
       }
 
-      els.grid.innerHTML = listings.map(listingCardHTML).join("");
-      els.empty.style.display = listings.length ? "none" : "block";
+      const sorted = listings.slice();
+      if (els.sort.value === "price-asc") sorted.sort((a, b) => a.pricePerMonth - b.pricePerMonth);
+      if (els.sort.value === "price-desc") sorted.sort((a, b) => b.pricePerMonth - a.pricePerMonth);
+      if (els.sort.value === "traffic-desc") sorted.sort((a, b) => b.trafficPerDay - a.trafficPerDay);
+
+      els.count.innerHTML = `<strong>${sorted.length}</strong> space${sorted.length === 1 ? "" : "s"} available`;
+      els.grid.innerHTML = sorted.map(listingCardHTML).join("");
+      els.empty.style.display = sorted.length ? "none" : "block";
     }
 
     ["input", "change"].forEach((evt) => {
@@ -70,10 +88,21 @@
       els.city.addEventListener(evt, load);
       els.type.addEventListener(evt, load);
       els.price.addEventListener(evt, load);
+      els.sort.addEventListener(evt, load);
+    });
+
+    document.getElementById("f-reset").addEventListener("click", () => {
+      els.q.value = "";
+      els.city.value = "all";
+      els.type.value = "all";
+      els.price.value = "";
+      els.sort.value = "featured";
+      load();
     });
 
     (async () => {
       renderNav(await getMe(), "listings");
+      renderFooter();
       load();
     })();
   </script>
