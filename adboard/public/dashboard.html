@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — AdVista</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="container" id="page" style="display:none; padding-bottom: 40px;">
+    <div class="page-title">
+      <h1 id="hello"></h1>
+      <p id="role-line"></p>
+    </div>
+
+    <!-- client view -->
+    <div id="client-view" style="display:none;">
+      <div class="tabs"><button class="active">My booking requests</button></div>
+      <div id="client-bookings"></div>
+    </div>
+
+    <!-- owner view -->
+    <div id="owner-view" style="display:none;">
+      <div class="tabs">
+        <button class="active" data-tab="requests">Booking requests</button>
+        <button data-tab="listings">My listings</button>
+        <button data-tab="add">+ Add a space</button>
+      </div>
+
+      <div id="tab-requests"></div>
+
+      <div id="tab-listings" style="display:none;">
+        <div class="card-grid" id="owner-listings"></div>
+      </div>
+
+      <div id="tab-add" style="display:none;">
+        <div class="panel" style="max-width: 640px;">
+          <h3>List a new ad space</h3>
+          <div class="form-error" id="add-err"></div>
+          <div class="form-success" id="add-ok"></div>
+          <div class="form-group"><label>Title</label>
+            <input id="a-title" placeholder="e.g. NH-8 Fuel Station Hoarding" /></div>
+          <div class="form-row">
+            <div class="form-group"><label>City</label><input id="a-city" placeholder="Gurugram" /></div>
+            <div class="form-group"><label>Format</label>
+              <select id="a-type">
+                <option>Billboard</option><option>Unipole</option><option>Digital LED</option>
+                <option>Gantry</option><option>Metro Pillar</option><option>Wall Wrap</option>
+              </select></div>
+          </div>
+          <div class="form-group"><label>Location / landmark</label>
+            <input id="a-location" placeholder="NH-48, Km 42, beside IOCL pump" /></div>
+          <div class="form-row">
+            <div class="form-group"><label>Size</label><input id="a-size" placeholder="40 x 20 ft" /></div>
+            <div class="form-group"><label>Facing</label><input id="a-facing" placeholder="North-bound traffic" /></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Daily traffic (vehicles)</label>
+              <input id="a-traffic" type="number" placeholder="120000" /></div>
+            <div class="form-group"><label>Price per month (₹)</label>
+              <input id="a-price" type="number" placeholder="200000" /></div>
+          </div>
+          <div class="form-group">
+            <label><input type="checkbox" id="a-lit" style="width:auto; margin-right: 8px;" />Backlit / illuminated</label>
+          </div>
+          <div class="form-group"><label>Description</label>
+            <textarea id="a-desc" rows="3" placeholder="What makes this space great?"></textarea></div>
+          <button class="btn btn-primary" id="a-submit">Publish listing</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer><div class="container">🪧 AdVista Outdoor Media · demo build</div></footer>
+
+  <script src="/shared.js"></script>
+  <script>
+    const el = (id) => document.getElementById(id);
+
+    function bookingRowHTML(b, isOwner) {
+      const who = isOwner
+        ? `Requested by <strong>${b.clientName}</strong>` : `On <strong>${b.listingTitle}</strong>`;
+      const actions =
+        isOwner && b.status === "pending"
+          ? `<div class="row-actions">
+               <button class="btn btn-small btn-approve" data-id="${b.id}" data-status="approved">Approve</button>
+               <button class="btn btn-small btn-reject" data-id="${b.id}" data-status="rejected">Reject</button>
+             </div>`
+          : "";
+      return `
+        <div class="booking-row">
+          <div class="info">
+            <h3>${b.listingTitle} <span style="color:var(--muted); font-weight:400;">· ${b.listingCity}</span></h3>
+            <p>${who} · 📅 ${b.startDate} → ${b.endDate}${b.message ? " · 💬 “" + b.message + "”" : ""}</p>
+          </div>
+          <span class="badge badge-${b.status}">${b.status}</span>
+          ${actions}
+        </div>`;
+    }
+
+    async function loadBookings(user) {
+      const { bookings } = await api("/api/bookings");
+      const isOwner = user.role === "owner";
+      const target = isOwner ? el("tab-requests") : el("client-bookings");
+      target.innerHTML = bookings.length
+        ? bookings.map((b) => bookingRowHTML(b, isOwner)).join("")
+        : `<div class="empty">${
+            isOwner
+              ? "No booking requests yet. They'll appear here when clients pick your spaces."
+              : 'No bookings yet. <a href="/listings.html">Browse spaces</a> and request your first campaign slot.'
+          }</div>`;
+      target.querySelectorAll("button[data-id]").forEach((btn) =>
+        btn.addEventListener("click", async () => {
+          try {
+            await api(`/api/bookings/${btn.dataset.id}/decision`, {
+              method: "POST",
+              body: JSON.stringify({ status: btn.dataset.status }),
+            });
+            loadBookings(user);
+          } catch (e) {
+            alert(e.message);
+          }
+        })
+      );
+    }
+
+    async function loadOwnerListings() {
+      const { listings } = await api("/api/my-listings");
+      el("owner-listings").innerHTML = listings.length
+        ? listings.map(listingCardHTML).join("")
+        : '<div class="empty">No listings yet — add your first space.</div>';
+    }
+
+    (async () => {
+      const user = await getMe();
+      renderNav(user, "dashboard");
+      if (!user) {
+        window.location.href = "/login.html?next=%2Fdashboard.html";
+        return;
+      }
+      el("hello").textContent = "Hello, " + user.name;
+      el("role-line").textContent =
+        user.role === "owner"
+          ? "Space owner dashboard — manage your listings and booking requests."
+          : "Client dashboard — track your campaign booking requests.";
+      el("page").style.display = "block";
+
+      if (user.role === "client") {
+        el("client-view").style.display = "block";
+        loadBookings(user);
+        return;
+      }
+
+      el("owner-view").style.display = "block";
+      loadBookings(user);
+      loadOwnerListings();
+
+      document.querySelectorAll(".tabs button[data-tab]").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".tabs button").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          ["requests", "listings", "add"].forEach((t) => {
+            el("tab-" + t).style.display = t === btn.dataset.tab ? "block" : "none";
+          });
+        })
+      );
+
+      el("a-submit").addEventListener("click", async () => {
+        const err = el("add-err"), ok = el("add-ok");
+        err.style.display = ok.style.display = "none";
+        try {
+          await api("/api/listings", {
+            method: "POST",
+            body: JSON.stringify({
+              title: el("a-title").value,
+              city: el("a-city").value,
+              type: el("a-type").value,
+              location: el("a-location").value,
+              size: el("a-size").value,
+              facing: el("a-facing").value,
+              trafficPerDay: el("a-traffic").value,
+              pricePerMonth: el("a-price").value,
+              lit: el("a-lit").checked,
+              description: el("a-desc").value,
+            }),
+          });
+          ok.textContent = "Listing published! It's now visible to all clients.";
+          ok.style.display = "block";
+          loadOwnerListings();
+        } catch (e) {
+          err.textContent = e.message;
+          err.style.display = "block";
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

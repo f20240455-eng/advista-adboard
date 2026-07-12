@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AdVista — Lease Billboard Spaces That Sell</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <h1>Your brand, on the <span class="highlight">busiest roads</span> in India</h1>
+      <p class="sub">
+        AdVista connects fuel stations, highways and malls that own premium billboard
+        real estate with brands looking for eyeballs. Browse verified outdoor spaces,
+        check live availability, and book in minutes.
+      </p>
+      <div class="hero-actions">
+        <a href="/listings.html" class="btn btn-primary">Browse Ad Spaces</a>
+        <a href="/login.html?mode=register&role=owner" class="btn btn-outline">List Your Space</a>
+      </div>
+      <div class="stats-row">
+        <div class="stat"><div class="num">120+</div><div class="label">Premium sites</div></div>
+        <div class="stat"><div class="num">9.8L</div><div class="label">Daily vehicle views</div></div>
+        <div class="stat"><div class="num">6</div><div class="label">Cities covered</div></div>
+        <div class="stat"><div class="num">48 hrs</div><div class="label">Avg. booking approval</div></div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="container">
+      <h2>Why brands choose AdVista</h2>
+      <p class="section-sub">Outdoor advertising without the phone calls, agents and guesswork.</p>
+      <div class="feature-grid">
+        <div class="feature">
+          <div class="icon">⛽</div>
+          <h3>Captive-audience sites</h3>
+          <p>Fuel stations and toll plazas where traffic slows or stops — your ad gets read, not just glanced at.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">📊</div>
+          <h3>Traffic-backed pricing</h3>
+          <p>Every listing shows verified daily vehicle counts, so you pay for reach you can actually measure.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">📅</div>
+          <h3>Live availability</h3>
+          <p>See booked dates upfront and request the exact window you want. No double-booking, ever.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">🤝</div>
+          <h3>Direct from owners</h3>
+          <p>Deal straight with the space owner through your dashboard — approvals typically within 48 hours.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="background: var(--bg-soft);">
+    <div class="container">
+      <h2>How it works</h2>
+      <p class="section-sub">From browsing to a live campaign in four steps.</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <h3>Browse &amp; filter</h3>
+          <p>Search by city, format and budget across unipoles, LED walls, gantries and more.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <h3>Pick your dates</h3>
+          <p>Check the availability on the listing and request the campaign window you need.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <h3>Owner approves</h3>
+          <p>The space owner reviews your request from their dashboard and confirms.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <h3>Go live</h3>
+          <p>Your creative goes up and your brand starts working the road.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="featured">
+    <div class="container">
+      <h2>Featured spaces</h2>
+      <p class="section-sub">A taste of what's live right now.</p>
+      <div class="card-grid" id="featured-grid"></div>
+      <div style="text-align:center; margin-top: 32px;">
+        <a href="/listings.html" class="btn btn-outline">See all listings →</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="cta-band">
+        <h2>Own a fuel station or roadside property?</h2>
+        <p>Turn your frontage into monthly revenue. List your billboard space free and start receiving booking requests.</p>
+        <a href="/login.html?mode=register&role=owner" class="btn btn-primary">List Your Space Free</a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      🪧 AdVista Outdoor Media · Making every kilometre count · demo build
+    </div>
+  </footer>
+
+  <script src="/shared.js"></script>
+  <script>
+    (async () => {
+      const user = await getMe();
+      renderNav(user, "home");
+      try {
+        const { listings } = await api("/api/listings");
+        document.getElementById("featured-grid").innerHTML =
+          listings.slice(0, 3).map(listingCardHTML).join("");
+      } catch {
+        document.getElementById("featured").style.display = "none";
+      }
+    })();
+  </script>
+</body>
+</html>

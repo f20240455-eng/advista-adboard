@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Browse Ad Spaces — AdVista</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="page-title">
+      <h1>Browse ad spaces</h1>
+      <p>Filter by city, format and budget. Click a card for full specs and booking.</p>
+    </div>
+
+    <div class="filters">
+      <input type="search" id="f-q" placeholder="Search by name, area, highway…" />
+      <select id="f-city"><option value="all">All cities</option></select>
+      <select id="f-type"><option value="all">All formats</option></select>
+      <select id="f-price">
+        <option value="">Any budget</option>
+        <option value="150000">Under ₹1.5L/mo</option>
+        <option value="250000">Under ₹2.5L/mo</option>
+        <option value="400000">Under ₹4L/mo</option>
+      </select>
+    </div>
+
+    <div class="card-grid" id="grid"></div>
+    <div class="empty" id="empty" style="display:none;">
+      No spaces match those filters. Try widening your search.
+    </div>
+  </div>
+
+  <footer>
+    <div class="container">🪧 AdVista Outdoor Media · demo build</div>
+  </footer>
+
+  <script src="/shared.js"></script>
+  <script>
+    const els = {
+      q: document.getElementById("f-q"),
+      city: document.getElementById("f-city"),
+      type: document.getElementById("f-type"),
+      price: document.getElementById("f-price"),
+      grid: document.getElementById("grid"),
+      empty: document.getElementById("empty"),
+    };
+    let filtersLoaded = false;
+
+    async function load() {
+      const params = new URLSearchParams();
+      if (els.q.value) params.set("q", els.q.value);
+      if (els.city.value !== "all") params.set("city", els.city.value);
+      if (els.type.value !== "all") params.set("type", els.type.value);
+      if (els.price.value) params.set("maxPrice", els.price.value);
+      const { listings, cities, types } = await api("/api/listings?" + params);
+
+      if (!filtersLoaded) {
+        cities.forEach((c) => els.city.insertAdjacentHTML("beforeend", `<option>${c}</option>`));
+        types.forEach((t) => els.type.insertAdjacentHTML("beforeend", `<option>${t}</option>`));
+        filtersLoaded = true;
+      }
+
+      els.grid.innerHTML = listings.map(listingCardHTML).join("");
+      els.empty.style.display = listings.length ? "none" : "block";
+    }
+
+    ["input", "change"].forEach((evt) => {
+      els.q.addEventListener(evt, load);
+      els.city.addEventListener(evt, load);
+      els.type.addEventListener(evt, load);
+      els.price.addEventListener(evt, load);
+    });
+
+    (async () => {
+      renderNav(await getMe(), "listings");
+      load();
+    })();
+  </script>
+</body>
+</html>

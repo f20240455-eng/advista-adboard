@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ad Space Details — AdVista</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="container" id="page" style="padding-top: 36px; display: none;">
+    <div class="detail-banner" id="banner"></div>
+    <div class="detail-grid">
+      <div>
+        <h1 id="title" style="font-size: 1.8rem;"></h1>
+        <p id="loc" style="color: var(--muted); margin-bottom: 4px;"></p>
+        <p id="owner" style="color: var(--muted); font-size: 0.88rem;"></p>
+        <div class="spec-grid" id="specs"></div>
+        <h3 style="margin-bottom: 8px;">About this space</h3>
+        <p id="desc" style="color: var(--muted);"></p>
+        <div id="booked-block" style="margin-top: 24px; display: none;">
+          <h3 style="margin-bottom: 8px;">Already booked</h3>
+          <div id="booked-list" style="color: var(--muted); font-size: 0.9rem;"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="panel">
+          <div class="big-price" id="price"></div>
+          <div id="booking-area" style="margin-top: 18px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container" id="notfound" style="display:none; padding: 80px 24px;">
+    <div class="empty">Listing not found. <a href="/listings.html">Back to browse</a></div>
+  </div>
+
+  <footer><div class="container">🪧 AdVista Outdoor Media · demo build</div></footer>
+
+  <script src="/shared.js"></script>
+  <script>
+    const id = new URLSearchParams(location.search).get("id");
+
+    function spec(k, v) {
+      return `<div class="spec"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+    }
+
+    (async () => {
+      const user = await getMe();
+      renderNav(user, "listings");
+
+      let data;
+      try {
+        data = await api("/api/listings/" + encodeURIComponent(id));
+      } catch {
+        document.getElementById("notfound").style.display = "block";
+        return;
+      }
+      const { listing: l, ownerName, bookedRanges } = data;
+
+      document.title = l.title + " — AdVista";
+      const banner = document.getElementById("banner");
+      banner.className = "detail-banner banner-" + l.theme;
+      banner.textContent = themeIcon(l.theme);
+      document.getElementById("title").textContent = l.title;
+      document.getElementById("loc").textContent = "📍 " + l.location + ", " + l.city;
+      document.getElementById("owner").textContent = "Listed by " + ownerName;
+      document.getElementById("desc").textContent = l.description;
+      document.getElementById("price").innerHTML =
+        formatINR(l.pricePerMonth) + " <span>/ month</span>";
+      document.getElementById("specs").innerHTML = [
+        spec("Format", l.type),
+        spec("Size", l.size),
+        spec("Daily traffic", formatTraffic(l.trafficPerDay) + " vehicles"),
+        spec("Facing", l.facing || "—"),
+        spec("Lighting", l.lit ? "Backlit ✦" : "Non-lit"),
+        spec("City", l.city),
+      ].join("");
+
+      if (bookedRanges.length) {
+        document.getElementById("booked-block").style.display = "block";
+        document.getElementById("booked-list").innerHTML = bookedRanges
+          .map((r) => `🔒 ${r.startDate} → ${r.endDate}`)
+          .join("<br>");
+      }
+
+      const area = document.getElementById("booking-area");
+      if (!user) {
+        area.innerHTML = `
+          <p style="color: var(--muted); font-size: 0.9rem; margin-bottom: 14px;">
+            Log in as a client to request this space for your campaign.
+          </p>
+          <a class="btn btn-primary" style="width:100%; text-align:center;"
+             href="/login.html?next=${encodeURIComponent(location.pathname + location.search)}">
+             Log in to book
+          </a>`;
+      } else if (user.role === "owner") {
+        area.innerHTML = `<p style="color: var(--muted); font-size: 0.9rem;">
+          You're logged in as a space owner. Only client accounts can book spaces.</p>`;
+      } else {
+        area.innerHTML = `
+          <div class="form-error" id="err"></div>
+          <div class="form-success" id="ok"></div>
+          <div class="form-row">
+            <div class="form-group"><label>Start date</label><input type="date" id="b-start" /></div>
+            <div class="form-group"><label>End date</label><input type="date" id="b-end" /></div>
+          </div>
+          <div class="form-group">
+            <label>Message to owner (optional)</label>
+            <textarea id="b-msg" rows="3" placeholder="Tell them about your campaign…"></textarea>
+          </div>
+          <button class="btn btn-primary" id="b-submit" style="width:100%;">Request Booking</button>`;
+        document.getElementById("b-submit").addEventListener("click", async () => {
+          const err = document.getElementById("err");
+          const ok = document.getElementById("ok");
+          err.style.display = ok.style.display = "none";
+          try {
+            await api("/api/bookings", {
+              method: "POST",
+              body: JSON.stringify({
+                listingId: l.id,
+                startDate: document.getElementById("b-start").value,
+                endDate: document.getElementById("b-end").value,
+                message: document.getElementById("b-msg").value,
+              }),
+            });
+            ok.textContent = "Request sent! Track it in your dashboard.";
+            ok.style.display = "block";
+          } catch (e) {
+            err.textContent = e.message;
+            err.style.display = "block";
+          }
+        });
+      }
+
+      document.getElementById("page").style.display = "block";
+    })();
+  </script>
+</body>
+</html>

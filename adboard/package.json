@@ -1,0 +1,12 @@
+{
+  "name": "adboard",
+  "version": "1.0.0",
+  "description": "AdVista — outdoor advertising marketplace: lease billboard spaces from fuel stations, highways and malls",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

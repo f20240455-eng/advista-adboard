@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "adboard",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["adboard/server.js"],
+      "port": 3000
+    }
+  ]
+}
