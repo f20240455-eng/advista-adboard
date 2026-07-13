@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Browse Ad Spaces — AdVista</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%231b57d6'/><text x='50' y='72' font-size='60' text-anchor='middle' fill='white' font-family='Arial'>◈</text></svg>" />
+  <title>Browse Ad Spaces — BookMyBoard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230b6e5c'/><text x='50' y='70' font-size='58' text-anchor='middle' fill='white' font-family='Georgia,serif' font-weight='bold'>B</text></svg>" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -38,9 +38,7 @@
     </div>
 
     <div class="card-grid" id="grid"></div>
-    <div class="empty" id="empty" style="display:none;">
-      No spaces match those filters. Try widening your search.
-    </div>
+    <div class="empty" id="empty" style="display:none;"></div>
   </div>
 
   <footer></footer>
@@ -80,7 +78,12 @@
 
       els.count.innerHTML = `<strong>${sorted.length}</strong> space${sorted.length === 1 ? "" : "s"} available`;
       els.grid.innerHTML = sorted.map(listingCardHTML).join("");
+
+      const filtersActive = els.q.value || els.city.value !== "all" || els.type.value !== "all" || els.price.value;
       els.empty.style.display = sorted.length ? "none" : "block";
+      els.empty.innerHTML = filtersActive
+        ? "No spaces match those filters. Try widening your search."
+        : 'No spaces listed yet in this area. <a href="/login.html?mode=register&role=owner">List the first one →</a>';
     }
 
     ["input", "change"].forEach((evt) => {

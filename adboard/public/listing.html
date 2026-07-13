@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ad Space Details — AdVista</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%231b57d6'/><text x='50' y='72' font-size='60' text-anchor='middle' fill='white' font-family='Arial'>◈</text></svg>" />
+  <title>Ad Space Details — BookMyBoard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230b6e5c'/><text x='50' y='70' font-size='58' text-anchor='middle' fill='white' font-family='Georgia,serif' font-weight='bold'>B</text></svg>" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -62,17 +62,12 @@
       }
       const { listing: l, ownerName, bookedRanges } = data;
 
-      document.title = l.title + " — AdVista";
+      document.title = l.title + " — BookMyBoard";
       const banner = document.getElementById("banner");
-      banner.className = "detail-banner banner-" + l.theme;
-      banner.innerHTML = bannerSVG(l.theme);
+      banner.innerHTML = `<img src="${themePhoto(l.theme, 1000)}" alt="${l.type} at ${l.location}" />`;
       const titleEl = document.getElementById("title");
       titleEl.textContent = l.title;
-      const chip = document.createElement("span");
-      chip.className = "verified";
-      chip.textContent = "✓ Verified site";
-      titleEl.appendChild(chip);
-      document.getElementById("loc").textContent = "📍 " + l.location + ", " + l.city;
+      document.getElementById("loc").textContent = l.location + ", " + l.city;
       document.getElementById("owner").textContent = "Listed by " + ownerName;
       document.getElementById("desc").textContent = l.description;
       document.getElementById("price").innerHTML =
@@ -82,14 +77,14 @@
         spec("Size", l.size),
         spec("Daily traffic", formatTraffic(l.trafficPerDay) + " vehicles"),
         spec("Facing", l.facing || "—"),
-        spec("Lighting", l.lit ? "Backlit ✦" : "Non-lit"),
+        spec("Lighting", l.lit ? "Backlit" : "Non-lit"),
         spec("City", l.city),
       ].join("");
 
       if (bookedRanges.length) {
         document.getElementById("booked-block").style.display = "block";
         document.getElementById("booked-list").innerHTML = bookedRanges
-          .map((r) => `🔒 ${r.startDate} → ${r.endDate}`)
+          .map((r) => `${r.startDate} → ${r.endDate}`)
           .join("<br>");
       }
 
@@ -97,7 +92,7 @@
       if (!user) {
         area.innerHTML = `
           <p style="color: var(--muted); font-size: 0.9rem; margin-bottom: 14px;">
-            Log in as a client to request this space for your campaign.
+            Log in as an advertiser to request this space for your campaign.
           </p>
           <a class="btn btn-primary" style="width:100%; text-align:center;"
              href="/login.html?next=${encodeURIComponent(location.pathname + location.search)}">
@@ -105,7 +100,7 @@
           </a>`;
       } else if (user.role === "owner") {
         area.innerHTML = `<p style="color: var(--muted); font-size: 0.9rem;">
-          You're logged in as a space owner. Only client accounts can book spaces.</p>`;
+          You're logged in as a space owner. Only advertiser accounts can book spaces.</p>`;
       } else {
         const today = new Date().toISOString().slice(0, 10);
         area.innerHTML = `
@@ -124,7 +119,7 @@
             <label>Message to owner (optional)</label>
             <textarea id="b-msg" rows="3" placeholder="Tell them about your campaign…"></textarea>
           </div>
-          <button class="btn btn-primary" id="b-submit" style="width:100%;">Request Booking</button>
+          <button class="btn btn-primary" id="b-submit" style="width:100%;">Request booking</button>
           <p style="color: var(--muted); font-size: 0.78rem; text-align: center; margin-top: 12px;">
             No payment now — the owner confirms your dates first.
           </p>`;

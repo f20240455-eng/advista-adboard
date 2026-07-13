@@ -291,5 +291,5 @@ app.post("/api/bookings/:id/decision", requireAuth("owner"), (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`AdVista running at http://localhost:${PORT}`);
+  console.log(`BookMyBoard running at http://localhost:${PORT}`);
 });

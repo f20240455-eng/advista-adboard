@@ -3,49 +3,70 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="AdVista — book verified billboard and outdoor ad space across India, directly from the owners. Transparent pricing, live availability, no brokers." />
-  <title>AdVista — Book Billboard Space, Directly From Owners</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%231b57d6'/><text x='50' y='72' font-size='60' text-anchor='middle' fill='white' font-family='Arial'>◈</text></svg>" />
+  <meta name="description" content="BookMyBoard — book verified billboard, unipole and digital LED space across India, directly from the owners. Transparent pricing, live availability, no brokers." />
+  <title>BookMyBoard — Book Billboard Space, Directly From Owners</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230b6e5c'/><text x='50' y='70' font-size='58' text-anchor='middle' fill='white' font-family='Georgia,serif' font-weight='bold'>B</text></svg>" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <div class="top-strip">
+    Own roadside space? <a href="/login.html?mode=register&role=owner">List it free →</a>
+  </div>
+
   <header class="hero">
     <div class="container">
-      <span class="eyebrow">Outdoor advertising, made simple</span>
-      <h1>Put your brand on the roads <span class="hl">India drives every day</span></h1>
+      <h1>Book billboard space, <span class="hl">straight from the owner</span></h1>
       <p class="sub">
-        Browse verified billboards, hoardings and digital screens across the country.
-        See real pricing, check what's available, and book — straight from the owner.
+        Compare unipoles, digital screens and hoardings across India. See the real
+        price and what's already booked before you ever pick up the phone.
       </p>
       <div class="hero-actions">
         <a href="/listings.html" class="btn btn-primary">Find a billboard</a>
         <a href="/login.html?mode=register&role=owner" class="btn btn-outline">List your space</a>
       </div>
-      <div class="trust-line">
-        <span><span class="tick">✓</span> Verified sites</span>
-        <span><span class="tick">✓</span> Transparent pricing</span>
-        <span><span class="tick">✓</span> No brokerage</span>
-      </div>
+      <p class="hero-note">Free to list. No brokerage on either side.</p>
     </div>
   </header>
 
-  <section class="section">
+  <section class="section center">
     <div class="container">
-      <h2>Why AdVista</h2>
-      <p class="section-sub">Everything you need to buy outdoor ads with confidence.</p>
+      <h2>Every format, one marketplace</h2>
+      <p class="section-sub">From single-pole highway hoardings to full digital screens.</p>
+      <div class="format-grid">
+        <div class="format-card">
+          <img src="https://images.unsplash.com/photo-1699480114704-ac153307d2a0?auto=format&fit=crop&w=500&q=65" alt="Unipole billboard on a highway at dusk" loading="lazy" />
+          <div class="wash"></div>
+          <div class="label"><div class="kicker">Roadside</div><h3>Unipoles</h3></div>
+        </div>
+        <div class="format-card">
+          <img src="https://images.unsplash.com/photo-1643642969389-6db6b7a0fa56?auto=format&fit=crop&w=500&q=65" alt="Close-up of a digital LED display" loading="lazy" />
+          <div class="wash"></div>
+          <div class="label"><div class="kicker">Screens</div><h3>Digital LED</h3></div>
+        </div>
+        <div class="format-card">
+          <img src="https://images.unsplash.com/photo-1743670476920-81ca1b70a4ba?auto=format&fit=crop&w=500&q=65" alt="Roadside billboard hoarding" loading="lazy" />
+          <div class="wash"></div>
+          <div class="label"><div class="kicker">Classic</div><h3>Billboards</h3></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section soft">
+    <div class="container">
       <div class="feature-grid">
         <div class="feature">
-          <div class="icon">📍</div>
+          <div class="num">01</div>
           <h3>Real, verified sites</h3>
           <p>Every listing shows the exact location, size and daily traffic — so you know what you're paying for.</p>
         </div>
         <div class="feature">
-          <div class="icon">📅</div>
+          <div class="num">02</div>
           <h3>Live availability</h3>
-          <p>Booked dates are shown upfront. Pick your window and request it in a couple of taps.</p>
+          <p>Booked dates are shown upfront. Pick your window and send a request in a couple of taps.</p>
         </div>
         <div class="feature">
-          <div class="icon">🤝</div>
+          <div class="num">03</div>
           <h3>Straight from owners</h3>
           <p>Deal directly with the space owner. No agents, no markup, no back-and-forth phone calls.</p>
         </div>
@@ -53,7 +74,7 @@
     </div>
   </section>
 
-  <section class="section soft">
+  <section class="section">
     <div class="container">
       <h2>How it works</h2>
       <p class="section-sub">From browsing to a live campaign in three steps.</p>
@@ -77,18 +98,18 @@
     </div>
   </section>
 
-  <section class="section" id="featured">
+  <section class="section soft" id="featured" style="display:none;">
     <div class="container">
       <h2>Spaces available now</h2>
       <p class="section-sub">A few of the sites you can book today.</p>
       <div class="card-grid" id="featured-grid"></div>
-      <div style="text-align:center; margin-top: 30px;">
+      <div style="margin-top: 30px;">
         <a href="/listings.html" class="btn btn-outline">See all spaces →</a>
       </div>
     </div>
   </section>
 
-  <section class="section soft">
+  <section class="section">
     <div class="container">
       <div class="cta-band">
         <h2>Own roadside space? Start earning from it.</h2>
@@ -107,11 +128,12 @@
       renderFooter();
       try {
         const { listings } = await api("/api/listings");
-        document.getElementById("featured-grid").innerHTML =
-          listings.slice(0, 3).map(listingCardHTML).join("");
-      } catch {
-        document.getElementById("featured").style.display = "none";
-      }
+        if (listings.length) {
+          document.getElementById("featured-grid").innerHTML =
+            listings.slice(0, 3).map(listingCardHTML).join("");
+          document.getElementById("featured").style.display = "block";
+        }
+      } catch {}
     })();
   </script>
 </body>

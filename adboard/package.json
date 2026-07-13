@@ -1,7 +1,7 @@
 {
-  "name": "adboard",
+  "name": "bookmyboard",
   "version": "1.0.0",
-  "description": "AdVista — outdoor advertising marketplace: lease billboard spaces from fuel stations, highways and malls",
+  "description": "BookMyBoard — outdoor advertising marketplace: book billboard, unipole and digital LED space directly from owners",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

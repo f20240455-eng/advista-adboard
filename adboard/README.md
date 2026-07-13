@@ -1,4 +1,4 @@
-# AdVista — Outdoor Advertising Marketplace
+# BookMyBoard — Outdoor Advertising Marketplace
 
 A two-sided marketplace where owners of billboard real estate (fuel stations,
 highways, malls, rooftops) list ad spaces, and advertisers browse, filter and
@@ -12,18 +12,18 @@ npm start
 # open http://localhost:3000
 ```
 
+The marketplace starts empty — owners add real listings from their dashboard.
+There is no seeded demo inventory.
+
 ## Data storage
 
-Data is stored in a SQLite database (`advista.db`). By default it sits next to
-the app; in production set `DATA_DIR` to a mounted persistent volume so data
+Data is stored in a SQLite database (`bookmyboard.db`). By default it sits next
+to the app; in production set `DATA_DIR` to a mounted persistent volume so data
 survives redeploys:
 
 ```sh
 DATA_DIR=/data npm start
 ```
-
-On first run the database seeds a verified house account and starter inventory
-so the marketplace isn't empty. Delete the `.db` files to reset.
 
 ### Deploying on Railway
 
@@ -49,7 +49,8 @@ so the marketplace isn't empty. Delete the `.db` files to reset.
 ## Stack
 
 Node + Express, SQLite (`better-sqlite3`), vanilla HTML/CSS/JS frontend. No
-build step — `npm start` runs everything.
+build step — `npm start` runs everything. Billboard-format photography is
+hotlinked from Unsplash (free license, no attribution required).
 
 ## Roadmap
 
