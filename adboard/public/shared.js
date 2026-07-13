@@ -137,17 +137,17 @@ function showToast(message, type = "success") {
 function renderNav(user, activePage) {
   const nav = document.createElement("nav");
   const links = [];
-  links.push(`<a href="/listings.html" class="${activePage === "listings" ? "active" : ""}">Browse Spaces</a>`);
+  links.push(`<a href="/listings.html" class="${activePage === "listings" ? "active" : ""}">Browse spaces</a>`);
   if (user) {
     links.push(`<a href="/dashboard.html" class="${activePage === "dashboard" ? "active" : ""}">Dashboard</a>`);
-    links.push(`<a href="#" id="logout-link">Log out (${user.name.split(" ")[0]})</a>`);
+    links.push(`<a href="#" id="logout-link" class="hide-sm">Log out</a>`);
   } else {
-    links.push(`<a href="/login.html" class="${activePage === "login" ? "active" : ""}">Log in</a>`);
-    links.push(`<a href="/login.html?mode=register" class="btn btn-primary btn-small">Get Started</a>`);
+    links.push(`<a href="/login.html" class="hide-sm ${activePage === "login" ? "active" : ""}">Log in</a>`);
+    links.push(`<a href="/login.html?mode=register" class="btn btn-primary btn-small">Get started</a>`);
   }
   nav.innerHTML = `
     <div class="nav-inner">
-      <a href="/" class="brand"><span class="logo">🪧</span>AdVista</a>
+      <a href="/" class="brand"><span class="logo">◈</span>AdVista</a>
       <div class="nav-links">${links.join("")}</div>
     </div>`;
   document.body.prepend(nav);
@@ -168,39 +168,26 @@ function renderFooter() {
     <div class="container">
       <div class="footer-grid">
         <div class="footer-brand">
-          <a href="/" class="brand"><span class="logo">🪧</span>AdVista</a>
-          <p>India's marketplace for outdoor advertising — connecting space owners with brands since 2024.</p>
+          <a href="/" class="brand"><span class="logo">◈</span>AdVista</a>
+          <p>India's marketplace for outdoor advertising — book verified billboard space directly from the people who own it.</p>
         </div>
         <div class="footer-col">
           <h4>Explore</h4>
           <ul>
             <li><a href="/listings.html">Browse spaces</a></li>
             <li><a href="/login.html?mode=register&role=owner">List your space</a></li>
-            <li><a href="/login.html">Client login</a></li>
+            <li><a href="/login.html">Log in</a></li>
           </ul>
         </div>
         <div class="footer-col">
-          <h4>Formats</h4>
+          <h4>Get in touch</h4>
           <ul>
-            <li>Unipoles &amp; billboards</li>
-            <li>Digital LED walls</li>
-            <li>Gantries &amp; metro pillars</li>
-            <li>Building wraps</li>
-          </ul>
-        </div>
-        <div class="footer-col">
-          <h4>Contact</h4>
-          <ul>
-            <li><a href="mailto:hello@advista.example">hello@advista.example</a></li>
-            <li>+91 124 400 0000</li>
-            <li>Sector 44, Gurugram</li>
+            <li><a href="mailto:hello@advista.in">hello@advista.in</a></li>
+            <li>Mon–Sat, 10am–7pm</li>
           </ul>
         </div>
       </div>
-      <div class="footer-bottom">
-        <span>© 2026 AdVista Outdoor Media · demo build</span>
-        <span>Making every kilometre count</span>
-      </div>
+      <div class="footer-bottom">© ${new Date().getFullYear()} AdVista Outdoor Media</div>
     </div>`;
 }
 

@@ -1,125 +1,12 @@
 const express = require("express");
 const crypto = require("crypto");
-const fs = require("fs");
 const path = require("path");
+const { db, hashPassword, listingToApi } = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DATA_FILE = path.join(__dirname, "data.json");
-
-// ---------- storage ----------
-
-function defaultData() {
-  const demoSalt = crypto.randomBytes(16).toString("hex");
-  const hash = (pw, salt) =>
-    crypto.scryptSync(pw, salt, 64).toString("hex");
-  const users = [
-    {
-      id: "u-owner",
-      name: "Highway Fuels Pvt Ltd",
-      email: "owner@demo.com",
-      role: "owner",
-      salt: demoSalt,
-      passwordHash: hash("demo123", demoSalt),
-    },
-    {
-      id: "u-client",
-      name: "Brightwave Beverages",
-      email: "client@demo.com",
-      role: "client",
-      salt: demoSalt,
-      passwordHash: hash("demo123", demoSalt),
-    },
-  ];
-  const listings = [
-    {
-      id: "l1", ownerId: "u-owner", title: "NH-48 Fuel Station Unipole",
-      city: "Gurugram", location: "NH-48, Km 42, beside IOCL fuel station",
-      type: "Unipole", size: "40 x 20 ft", facing: "North-bound traffic",
-      trafficPerDay: 145000, pricePerMonth: 220000, lit: true,
-      description: "Premium unipole at a busy IOCL pump on the Delhi–Jaipur highway. Long dwell time while vehicles refuel; visible from 300m on the carriageway.",
-      theme: "highway",
-    },
-    {
-      id: "l2", ownerId: "u-owner", title: "Cyber Hub Digital LED Wall",
-      city: "Gurugram", location: "DLF Cyber Hub, main entrance plaza",
-      type: "Digital LED", size: "24 x 12 ft", facing: "Pedestrian plaza",
-      trafficPerDay: 60000, pricePerMonth: 480000, lit: true,
-      description: "4K LED wall at the entrance of Cyber Hub. 10-second slots in a 60-second loop, evening footfall of office crowd and diners.",
-      theme: "digital",
-    },
-    {
-      id: "l3", ownerId: "u-owner", title: "Mumbai–Pune Expressway Gantry",
-      city: "Mumbai", location: "Expressway Km 18, before Khalapur toll",
-      type: "Gantry", size: "60 x 15 ft", facing: "Pune-bound traffic",
-      trafficPerDay: 180000, pricePerMonth: 350000, lit: true,
-      description: "Overhead gantry with unmissable placement before the toll plaza where traffic slows to a crawl. Highest read-time on the corridor.",
-      theme: "highway",
-    },
-    {
-      id: "l4", ownerId: "u-owner", title: "Andheri Metro Pillar Series",
-      city: "Mumbai", location: "Andheri West, Metro pillars 214–222",
-      type: "Metro Pillar", size: "8 pillars, 10 x 5 ft each", facing: "Both carriageways",
-      trafficPerDay: 95000, pricePerMonth: 160000, lit: false,
-      description: "A run of 8 consecutive metro pillars for sequential storytelling creatives on a dense office corridor.",
-      theme: "urban",
-    },
-    {
-      id: "l5", ownerId: "u-owner", title: "Koramangala Mall Facade Wrap",
-      city: "Bengaluru", location: "Forum Mall, 80 Feet Road facade",
-      type: "Wall Wrap", size: "50 x 30 ft", facing: "80 Feet Road junction",
-      trafficPerDay: 110000, pricePerMonth: 300000, lit: true,
-      description: "Full building wrap over the mall entrance at one of Bengaluru's busiest junctions. Weekend footfall skews young and high-spend.",
-      theme: "urban",
-    },
-    {
-      id: "l6", ownerId: "u-owner", title: "ORR Fuel Station Hoarding",
-      city: "Bengaluru", location: "Outer Ring Road, HP petrol pump, Marathahalli",
-      type: "Billboard", size: "30 x 15 ft", facing: "Airport-bound traffic",
-      trafficPerDay: 130000, pricePerMonth: 190000, lit: true,
-      description: "Backlit hoarding inside a high-volume HP pump on ORR. Captive audience during refuelling plus full visibility from the service road.",
-      theme: "fuel",
-    },
-    {
-      id: "l7", ownerId: "u-owner", title: "Anna Salai Digital Billboard",
-      city: "Chennai", location: "Anna Salai, opposite LIC building",
-      type: "Digital LED", size: "20 x 10 ft", facing: "Signal-stop traffic",
-      trafficPerDay: 90000, pricePerMonth: 260000, lit: true,
-      description: "Digital screen at a 90-second signal — guaranteed dwell time every cycle in Chennai's CBD.",
-      theme: "digital",
-    },
-    {
-      id: "l8", ownerId: "u-owner", title: "Jaipur Highway Welcome Arch",
-      city: "Jaipur", location: "NH-48 city entry, Ajmer Road",
-      type: "Gantry", size: "45 x 12 ft", facing: "City-bound traffic",
-      trafficPerDay: 75000, pricePerMonth: 120000, lit: false,
-      description: "The first large-format site tourists and commuters see entering Jaipur from Delhi. Strong for hospitality and retail brands.",
-      theme: "highway",
-    },
-  ];
-  return { users, listings, bookings: [], sessions: {} };
-}
-
-function loadData() {
-  if (!fs.existsSync(DATA_FILE)) {
-    const d = defaultData();
-    fs.writeFileSync(DATA_FILE, JSON.stringify(d, null, 2));
-    return d;
-  }
-  return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-}
-
-const db = loadData();
-
-function save() {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
-}
 
 // ---------- helpers ----------
-
-function hashPassword(pw, salt) {
-  return crypto.scryptSync(pw, salt, 64).toString("hex");
-}
 
 function publicUser(u) {
   return { id: u.id, name: u.name, email: u.email, role: u.role };
@@ -137,9 +24,19 @@ function parseCookies(req) {
 function currentUser(req) {
   const token = parseCookies(req).session;
   if (!token) return null;
-  const userId = db.sessions[token];
-  if (!userId) return null;
-  return db.users.find((u) => u.id === userId) || null;
+  const session = db.prepare("SELECT user_id FROM sessions WHERE token = ?").get(token);
+  if (!session) return null;
+  return db.prepare("SELECT * FROM users WHERE id = ?").get(session.user_id) || null;
+}
+
+function startSession(res, userId) {
+  const token = crypto.randomBytes(24).toString("hex");
+  db.prepare("INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)").run(
+    token,
+    userId,
+    new Date().toISOString()
+  );
+  res.setHeader("Set-Cookie", `session=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=2592000`);
 }
 
 function requireAuth(role) {
@@ -167,12 +64,14 @@ app.post("/api/register", (req, res) => {
   if (!name || !email || !password || !role)
     return res.status(400).json({ error: "All fields are required." });
   if (!["client", "owner"].includes(role))
-    return res.status(400).json({ error: "Role must be client or owner." });
-  if (password.length < 6)
+    return res.status(400).json({ error: "Please choose whether you're advertising or listing a space." });
+  if (String(password).length < 6)
     return res.status(400).json({ error: "Password must be at least 6 characters." });
   const emailNorm = String(email).trim().toLowerCase();
-  if (db.users.some((u) => u.email === emailNorm))
+  const exists = db.prepare("SELECT 1 FROM users WHERE email = ?").get(emailNorm);
+  if (exists)
     return res.status(409).json({ error: "An account with that email already exists." });
+
   const salt = crypto.randomBytes(16).toString("hex");
   const user = {
     id: "u-" + crypto.randomBytes(6).toString("hex"),
@@ -180,38 +79,31 @@ app.post("/api/register", (req, res) => {
     email: emailNorm,
     role,
     salt,
-    passwordHash: hashPassword(password, salt),
+    password_hash: hashPassword(password, salt),
+    created_at: new Date().toISOString(),
   };
-  db.users.push(user);
-  const token = crypto.randomBytes(24).toString("hex");
-  db.sessions[token] = user.id;
-  save();
-  res.cookie
-    ? res.cookie("session", token, { httpOnly: true })
-    : res.setHeader("Set-Cookie", `session=${token}; HttpOnly; Path=/`);
+  db.prepare(
+    `INSERT INTO users (id, name, email, role, salt, password_hash, created_at)
+     VALUES (@id, @name, @email, @role, @salt, @password_hash, @created_at)`
+  ).run(user);
+  startSession(res, user.id);
   res.json({ user: publicUser(user) });
 });
 
 app.post("/api/login", (req, res) => {
   const { email, password } = req.body || {};
-  const user = db.users.find(
-    (u) => u.email === String(email || "").trim().toLowerCase()
-  );
-  if (!user || hashPassword(password || "", user.salt) !== user.passwordHash)
+  const user = db
+    .prepare("SELECT * FROM users WHERE email = ?")
+    .get(String(email || "").trim().toLowerCase());
+  if (!user || hashPassword(password || "", user.salt) !== user.password_hash)
     return res.status(401).json({ error: "Invalid email or password." });
-  const token = crypto.randomBytes(24).toString("hex");
-  db.sessions[token] = user.id;
-  save();
-  res.setHeader("Set-Cookie", `session=${token}; HttpOnly; Path=/`);
+  startSession(res, user.id);
   res.json({ user: publicUser(user) });
 });
 
 app.post("/api/logout", (req, res) => {
   const token = parseCookies(req).session;
-  if (token) {
-    delete db.sessions[token];
-    save();
-  }
+  if (token) db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
   res.setHeader("Set-Cookie", "session=; Path=/; Max-Age=0");
   res.json({ ok: true });
 });
@@ -225,33 +117,32 @@ app.get("/api/me", (req, res) => {
 
 app.get("/api/listings", (req, res) => {
   const { city, type, maxPrice, q } = req.query;
-  let items = db.listings.slice();
-  if (city && city !== "all") items = items.filter((l) => l.city === city);
-  if (type && type !== "all") items = items.filter((l) => l.type === type);
-  if (maxPrice) items = items.filter((l) => l.pricePerMonth <= Number(maxPrice));
+  const clauses = [];
+  const params = {};
+  if (city && city !== "all") { clauses.push("city = @city"); params.city = city; }
+  if (type && type !== "all") { clauses.push("type = @type"); params.type = type; }
+  if (maxPrice) { clauses.push("price_per_month <= @maxPrice"); params.maxPrice = Number(maxPrice); }
   if (q) {
-    const needle = String(q).toLowerCase();
-    items = items.filter((l) =>
-      [l.title, l.location, l.city, l.type, l.description]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle)
-    );
+    clauses.push("(LOWER(title || ' ' || location || ' ' || city || ' ' || type || ' ' || IFNULL(description,'')) LIKE @q)");
+    params.q = "%" + String(q).toLowerCase() + "%";
   }
-  const cities = [...new Set(db.listings.map((l) => l.city))].sort();
-  const types = [...new Set(db.listings.map((l) => l.type))].sort();
-  res.json({ listings: items, cities, types });
+  const where = clauses.length ? "WHERE " + clauses.join(" AND ") : "";
+  const rows = db.prepare(`SELECT * FROM listings ${where} ORDER BY created_at`).all(params);
+
+  const all = db.prepare("SELECT DISTINCT city FROM listings ORDER BY city").all().map((r) => r.city);
+  const types = db.prepare("SELECT DISTINCT type FROM listings ORDER BY type").all().map((r) => r.type);
+  res.json({ listings: rows.map(listingToApi), cities: all, types });
 });
 
 app.get("/api/listings/:id", (req, res) => {
-  const listing = db.listings.find((l) => l.id === req.params.id);
-  if (!listing) return res.status(404).json({ error: "Listing not found." });
-  const owner = db.users.find((u) => u.id === listing.ownerId);
-  const bookedRanges = db.bookings
-    .filter((b) => b.listingId === listing.id && b.status === "approved")
-    .map((b) => ({ startDate: b.startDate, endDate: b.endDate }));
+  const row = db.prepare("SELECT * FROM listings WHERE id = ?").get(req.params.id);
+  if (!row) return res.status(404).json({ error: "Listing not found." });
+  const owner = db.prepare("SELECT name FROM users WHERE id = ?").get(row.owner_id);
+  const bookedRanges = db
+    .prepare("SELECT start_date AS startDate, end_date AS endDate FROM bookings WHERE listing_id = ? AND status = 'approved'")
+    .all(row.id);
   res.json({
-    listing,
+    listing: listingToApi(row),
     ownerName: owner ? owner.name : "Unknown",
     bookedRanges,
   });
@@ -270,110 +161,133 @@ app.post("/api/listings", requireAuth("owner"), (req, res) => {
   };
   const listing = {
     id: "l-" + crypto.randomBytes(6).toString("hex"),
-    ownerId: req.user.id,
+    owner_id: req.user.id,
     title: String(title).trim(),
     city: String(city).trim(),
     location: String(location).trim(),
     type: String(type).trim(),
     size: String(size).trim(),
     facing: String(facing || "").trim(),
-    trafficPerDay: Number(trafficPerDay) || 0,
-    pricePerMonth: Number(pricePerMonth),
-    lit: Boolean(lit),
+    traffic_per_day: Number(trafficPerDay) || 0,
+    price_per_month: Number(pricePerMonth),
+    lit: lit ? 1 : 0,
     description: String(description || "").trim(),
     theme: themeByType[type] || "urban",
+    created_at: new Date().toISOString(),
   };
-  db.listings.push(listing);
-  save();
-  res.status(201).json({ listing });
+  db.prepare(
+    `INSERT INTO listings
+       (id, owner_id, title, city, location, type, size, facing,
+        traffic_per_day, price_per_month, lit, description, theme, created_at)
+     VALUES (@id, @owner_id, @title, @city, @location, @type, @size, @facing,
+        @traffic_per_day, @price_per_month, @lit, @description, @theme, @created_at)`
+  ).run(listing);
+  res.status(201).json({ listing: listingToApi(listing) });
 });
 
 // ---------- bookings ----------
 
 app.post("/api/bookings", requireAuth("client"), (req, res) => {
   const { listingId, startDate, endDate, message } = req.body || {};
-  const listing = db.listings.find((l) => l.id === listingId);
+  const listing = db.prepare("SELECT id FROM listings WHERE id = ?").get(listingId);
   if (!listing) return res.status(404).json({ error: "Listing not found." });
   if (!startDate || !endDate)
     return res.status(400).json({ error: "Start and end dates are required." });
   if (endDate < startDate)
     return res.status(400).json({ error: "End date must be after the start date." });
-  const clash = db.bookings.some(
-    (b) =>
-      b.listingId === listingId &&
-      b.status === "approved" &&
-      overlaps(startDate, endDate, b.startDate, b.endDate)
-  );
-  if (clash)
+
+  const approved = db
+    .prepare("SELECT start_date, end_date FROM bookings WHERE listing_id = ? AND status = 'approved'")
+    .all(listingId);
+  if (approved.some((b) => overlaps(startDate, endDate, b.start_date, b.end_date)))
     return res.status(409).json({ error: "That space is already booked for part of those dates." });
+
   const booking = {
     id: "b-" + crypto.randomBytes(6).toString("hex"),
-    listingId,
-    clientId: req.user.id,
-    startDate,
-    endDate,
+    listing_id: listingId,
+    client_id: req.user.id,
+    start_date: startDate,
+    end_date: endDate,
     message: String(message || "").trim(),
     status: "pending",
-    createdAt: new Date().toISOString(),
+    created_at: new Date().toISOString(),
   };
-  db.bookings.push(booking);
-  save();
+  db.prepare(
+    `INSERT INTO bookings (id, listing_id, client_id, start_date, end_date, message, status, created_at)
+     VALUES (@id, @listing_id, @client_id, @start_date, @end_date, @message, @status, @created_at)`
+  ).run(booking);
   res.status(201).json({ booking });
 });
 
 app.get("/api/bookings", requireAuth(), (req, res) => {
-  const withDetails = (b) => {
-    const listing = db.listings.find((l) => l.id === b.listingId);
-    const client = db.users.find((u) => u.id === b.clientId);
-    return {
-      ...b,
-      listingTitle: listing ? listing.title : "Deleted listing",
-      listingCity: listing ? listing.city : "",
-      pricePerMonth: listing ? listing.pricePerMonth : 0,
-      clientName: client ? client.name : "Unknown",
-    };
-  };
-  let items;
+  let rows;
   if (req.user.role === "client") {
-    items = db.bookings.filter((b) => b.clientId === req.user.id);
+    rows = db
+      .prepare(
+        `SELECT b.*, l.title AS listingTitle, l.city AS listingCity, l.price_per_month AS pricePerMonth,
+                u.name AS clientName
+           FROM bookings b
+           JOIN listings l ON l.id = b.listing_id
+           JOIN users u ON u.id = b.client_id
+          WHERE b.client_id = ?
+          ORDER BY b.created_at DESC`
+      )
+      .all(req.user.id);
   } else {
-    const myListingIds = new Set(
-      db.listings.filter((l) => l.ownerId === req.user.id).map((l) => l.id)
-    );
-    items = db.bookings.filter((b) => myListingIds.has(b.listingId));
+    rows = db
+      .prepare(
+        `SELECT b.*, l.title AS listingTitle, l.city AS listingCity, l.price_per_month AS pricePerMonth,
+                u.name AS clientName
+           FROM bookings b
+           JOIN listings l ON l.id = b.listing_id
+           JOIN users u ON u.id = b.client_id
+          WHERE l.owner_id = ?
+          ORDER BY b.created_at DESC`
+      )
+      .all(req.user.id);
   }
-  res.json({ bookings: items.map(withDetails).reverse() });
+  const bookings = rows.map((b) => ({
+    id: b.id,
+    listingId: b.listing_id,
+    clientId: b.client_id,
+    startDate: b.start_date,
+    endDate: b.end_date,
+    message: b.message,
+    status: b.status,
+    listingTitle: b.listingTitle,
+    listingCity: b.listingCity,
+    pricePerMonth: b.pricePerMonth,
+    clientName: b.clientName,
+  }));
+  res.json({ bookings });
 });
 
 app.get("/api/my-listings", requireAuth("owner"), (req, res) => {
-  res.json({
-    listings: db.listings.filter((l) => l.ownerId === req.user.id),
-  });
+  const rows = db
+    .prepare("SELECT * FROM listings WHERE owner_id = ? ORDER BY created_at DESC")
+    .all(req.user.id);
+  res.json({ listings: rows.map(listingToApi) });
 });
 
 app.post("/api/bookings/:id/decision", requireAuth("owner"), (req, res) => {
-  const booking = db.bookings.find((b) => b.id === req.params.id);
+  const booking = db.prepare("SELECT * FROM bookings WHERE id = ?").get(req.params.id);
   if (!booking) return res.status(404).json({ error: "Booking not found." });
-  const listing = db.listings.find((l) => l.id === booking.listingId);
-  if (!listing || listing.ownerId !== req.user.id)
+  const listing = db.prepare("SELECT owner_id FROM listings WHERE id = ?").get(booking.listing_id);
+  if (!listing || listing.owner_id !== req.user.id)
     return res.status(403).json({ error: "This booking is not on your listing." });
   const { status } = req.body || {};
   if (!["approved", "rejected"].includes(status))
     return res.status(400).json({ error: "Status must be approved or rejected." });
+
   if (status === "approved") {
-    const clash = db.bookings.some(
-      (b) =>
-        b.id !== booking.id &&
-        b.listingId === booking.listingId &&
-        b.status === "approved" &&
-        overlaps(booking.startDate, booking.endDate, b.startDate, b.endDate)
-    );
-    if (clash)
+    const others = db
+      .prepare("SELECT start_date, end_date FROM bookings WHERE listing_id = ? AND status = 'approved' AND id != ?")
+      .all(booking.listing_id, booking.id);
+    if (others.some((b) => overlaps(booking.start_date, booking.end_date, b.start_date, b.end_date)))
       return res.status(409).json({ error: "Dates clash with an already-approved booking." });
   }
-  booking.status = status;
-  save();
-  res.json({ booking });
+  db.prepare("UPDATE bookings SET status = ? WHERE id = ?").run(status, booking.id);
+  res.json({ booking: { ...booking, status } });
 });
 
 app.listen(PORT, () => {
