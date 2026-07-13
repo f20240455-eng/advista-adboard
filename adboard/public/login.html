@@ -4,50 +4,42 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Log in — AdVista</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪧</text></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%231b57d6'/><text x='50' y='72' font-size='60' text-anchor='middle' fill='white' font-family='Arial'>◈</text></svg>" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div class="auth-wrap">
     <div class="panel">
-      <div class="auth-logo">🪧</div>
+      <a href="/" class="auth-logo" style="text-decoration:none;">◈</a>
       <h1 id="heading">Welcome back</h1>
       <p class="sub" id="subheading">Log in to your AdVista account</p>
       <div class="form-error" id="err"></div>
 
       <div id="register-extra" style="display:none;">
         <div class="role-toggle">
-          <button type="button" id="role-client" class="selected">📣 I'm an Advertiser</button>
-          <button type="button" id="role-owner">🏪 I own a Space</button>
+          <button type="button" id="role-client" class="selected">I'm advertising<small>Find &amp; book space</small></button>
+          <button type="button" id="role-owner">I own a space<small>List &amp; earn</small></button>
         </div>
         <div class="form-group">
-          <label>Business / brand name</label>
-          <input type="text" id="name" placeholder="e.g. Brightwave Beverages" />
+          <label>Business or brand name</label>
+          <input type="text" id="name" autocomplete="organization" placeholder="Your company name" />
         </div>
       </div>
 
       <div class="form-group">
         <label>Email</label>
-        <input type="email" id="email" placeholder="you@company.com" />
+        <input type="email" id="email" autocomplete="email" placeholder="you@company.com" />
       </div>
       <div class="form-group">
         <label>Password</label>
-        <input type="password" id="password" placeholder="••••••••" />
+        <input type="password" id="password" autocomplete="current-password" placeholder="••••••••" />
       </div>
-      <button class="btn btn-primary" id="submit" style="width:100%;">Log in</button>
+      <button class="btn btn-primary btn-block" id="submit">Log in</button>
 
       <p style="text-align:center; margin-top: 16px; font-size: 0.9rem; color: var(--muted);">
         <span id="switch-text">New to AdVista?</span>
         <a href="#" id="switch-link">Create an account</a>
       </p>
-
-      <div class="demo-note">
-        <strong>Just exploring?</strong> Jump straight in with a demo account:
-        <div class="demo-btns">
-          <button type="button" class="btn btn-outline btn-small" id="demo-client">📣 Advertiser demo</button>
-          <button type="button" class="btn btn-outline btn-small" id="demo-owner">🏪 Owner demo</button>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -64,10 +56,11 @@
       const reg = mode === "register";
       el("heading").textContent = reg ? "Create your account" : "Welcome back";
       el("subheading").textContent = reg
-        ? "Join AdVista as an advertiser or space owner"
+        ? "It takes less than a minute."
         : "Log in to your AdVista account";
       el("register-extra").style.display = reg ? "block" : "none";
       el("submit").textContent = reg ? "Create account" : "Log in";
+      el("password").autocomplete = reg ? "new-password" : "current-password";
       el("switch-text").textContent = reg ? "Already have an account?" : "New to AdVista?";
       el("switch-link").textContent = reg ? "Log in instead" : "Create an account";
       el("err").style.display = "none";
@@ -86,9 +79,12 @@
     el("role-client").addEventListener("click", () => { role = "client"; renderRole(); });
     el("role-owner").addEventListener("click", () => { role = "owner"; renderRole(); });
 
-    el("submit").addEventListener("click", async () => {
+    async function submit() {
       const err = el("err");
+      const btn = el("submit");
       err.style.display = "none";
+      btn.disabled = true;
+      btn.textContent = mode === "register" ? "Creating…" : "Logging in…";
       try {
         if (mode === "register") {
           await api("/api/register", {
@@ -113,22 +109,15 @@
       } catch (e) {
         err.textContent = e.message;
         err.style.display = "block";
+        btn.disabled = false;
+        renderMode();
       }
-    });
-
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") el("submit").click();
-    });
-
-    function demoLogin(email) {
-      mode = "login";
-      renderMode();
-      el("email").value = email;
-      el("password").value = "demo123";
-      el("submit").click();
     }
-    el("demo-client").addEventListener("click", () => demoLogin("client@demo.com"));
-    el("demo-owner").addEventListener("click", () => demoLogin("owner@demo.com"));
+
+    el("submit").addEventListener("click", submit);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !el("submit").disabled) submit();
+    });
 
     (async () => {
       renderNav(await getMe(), "login");

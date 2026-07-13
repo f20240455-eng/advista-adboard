@@ -1,8 +1,8 @@
 # AdVista — Outdoor Advertising Marketplace
 
 A two-sided marketplace where owners of billboard real estate (fuel stations,
-highway plots, malls) list ad spaces, and advertiser clients browse, filter and
-request bookings for campaign date ranges.
+highways, malls, rooftops) list ad spaces, and advertisers browse, filter and
+book them for campaign date ranges — directly, with no brokers.
 
 ## Run it
 
@@ -12,35 +12,49 @@ npm start
 # open http://localhost:3000
 ```
 
-Data lives in `data.json` (auto-created with seed listings on first run).
-Delete the file to reset the demo.
+## Data storage
 
-## Demo accounts
+Data is stored in a SQLite database (`advista.db`). By default it sits next to
+the app; in production set `DATA_DIR` to a mounted persistent volume so data
+survives redeploys:
 
-| Role   | Email            | Password |
-| ------ | ---------------- | -------- |
-| Client | client@demo.com  | demo123  |
-| Owner  | owner@demo.com   | demo123  |
+```sh
+DATA_DIR=/data npm start
+```
+
+On first run the database seeds a verified house account and starter inventory
+so the marketplace isn't empty. Delete the `.db` files to reset.
+
+### Deploying on Railway
+
+1. Connect the GitHub repo (root directory `adboard`).
+2. Add a **Volume** mounted at e.g. `/data`.
+3. Set env var `DATA_DIR=/data`.
+
+`PORT` is provided by Railway automatically.
 
 ## Features
 
 - **Public site** — landing page, browsable listings with search + city /
-  format / budget filters, detail pages with specs and live booked-date info.
-- **Client portal** — register/log in, request a booking for a date range,
-  track request status on the dashboard.
-- **Owner portal** — publish new listings, review booking requests,
-  approve/reject. Approvals are blocked if dates clash with an existing
-  approved booking.
-- **Auth** — scrypt-hashed passwords, HttpOnly session cookies, role-based
-  API authorization.
+  format / budget filters and sorting, detail pages with specs, live
+  booked-date info, and a campaign cost/impressions estimator.
+- **Advertiser accounts** — register/log in, request a booking for a date
+  range, track request status.
+- **Owner accounts** — publish listings, review booking requests, approve or
+  reject. Approvals are blocked when dates clash with an existing approved
+  booking.
+- **Auth** — scrypt-hashed passwords, HttpOnly session cookies (30-day),
+  role-based API authorization.
 
 ## Stack
 
-Node + Express, JSON-file storage, vanilla HTML/CSS/JS frontend. No build
-step, no database — everything runs with `npm start`.
+Node + Express, SQLite (`better-sqlite3`), vanilla HTML/CSS/JS frontend. No
+build step — `npm start` runs everything.
 
-## Roadmap ideas
+## Roadmap
 
-Map view of inventory, estimated-impressions analytics, availability
-calendar UI, online payments/escrow, owner verification badges, slot-based
-leasing for digital LED screens, admin moderation.
+- Forgot-password flow and Google sign-in
+- Payment gateway with commission-based booking fees
+- Supply-side integrations: billboard manufacturers, banner printing,
+  digital-screen suppliers
+- Map view of inventory and availability calendar UI
