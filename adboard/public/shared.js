@@ -14,6 +14,16 @@ function themePhoto(theme, width) {
   return `${base}?auto=format&fit=crop&w=${width}&q=65`;
 }
 
+// Anything a user typed must go through this before it reaches innerHTML.
+function esc(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function formatINR(n) {
   return "₹" + Number(n).toLocaleString("en-IN");
 }
@@ -43,6 +53,18 @@ async function getMe() {
   }
 }
 
+// Which optional integrations (Google sign-in, payments) are switched on.
+let _config = null;
+async function getConfig() {
+  if (_config) return _config;
+  try {
+    _config = await api("/api/config");
+  } catch {
+    _config = { googleEnabled: false, razorpayEnabled: false, commissionPct: 10 };
+  }
+  return _config;
+}
+
 function showToast(message, type = "success") {
   document.querySelectorAll(".toast").forEach((t) => t.remove());
   const toast = document.createElement("div");
@@ -56,6 +78,7 @@ function renderNav(user, activePage) {
   const nav = document.createElement("nav");
   const links = [];
   links.push(`<a href="/listings.html" class="${activePage === "listings" ? "active" : ""}">Browse spaces</a>`);
+  links.push(`<a href="/services.html" class="hide-sm ${activePage === "services" ? "active" : ""}">Suppliers</a>`);
   if (user) {
     links.push(`<a href="/dashboard.html" class="${activePage === "dashboard" ? "active" : ""}">Dashboard</a>`);
     links.push(`<a href="#" id="logout-link" class="hide-sm">Log out</a>`);
@@ -93,8 +116,9 @@ function renderFooter() {
           <h4>Explore</h4>
           <ul>
             <li><a href="/listings.html">Browse spaces</a></li>
+            <li><a href="/services.html">Suppliers &amp; services</a></li>
             <li><a href="/login.html?mode=register&role=owner">List your space</a></li>
-            <li><a href="/login.html">Log in</a></li>
+            <li><a href="/login.html?mode=register&role=vendor">List your service</a></li>
           </ul>
         </div>
         <div class="footer-col">
@@ -114,19 +138,35 @@ function renderFooter() {
 
 function listingCardHTML(l) {
   return `
-    <a class="listing-card" href="/listing.html?id=${l.id}">
+    <a class="listing-card" href="/listing.html?id=${encodeURIComponent(l.id)}">
       <div class="card-banner">
         <img src="${themePhoto(l.theme, 600)}" alt="" loading="lazy" />
-        <span class="type-tag">${l.type}</span>
+        <span class="type-tag">${esc(l.type)}</span>
         ${l.lit ? '<span class="lit-tag">Backlit</span>' : ""}
       </div>
       <div class="card-body">
-        <h3>${l.title}</h3>
-        <p class="loc">${l.location}, ${l.city}</p>
+        <h3>${esc(l.title)}</h3>
+        <p class="loc">${esc(l.location)}, ${esc(l.city)}</p>
         <div class="card-meta">
           <div class="price">${formatINR(l.pricePerMonth)}<span>/month</span></div>
           <div class="traffic">${formatTraffic(l.trafficPerDay)} vehicles/day</div>
         </div>
       </div>
     </a>`;
+}
+
+function vendorCardHTML(v) {
+  return `
+    <div class="listing-card vendor-card">
+      <div class="card-body">
+        <span class="cat-tag">${esc(v.category)}</span>
+        <h3>${esc(v.name)}</h3>
+        <p class="loc">${esc(v.city)}</p>
+        ${v.description ? `<p class="vendor-desc">${esc(v.description)}</p>` : ""}
+        <div class="card-meta">
+          <div class="price">${v.minPrice ? formatINR(v.minPrice) + '<span> onwards</span>' : '<span>Ask for a quote</span>'}</div>
+          <button class="btn btn-outline btn-small" data-vendor="${esc(v.id)}">Get a quote</button>
+        </div>
+      </div>
+    </div>`;
 }

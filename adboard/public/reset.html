@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Set a new password — BookMyBoard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230b6e5c'/><text x='50' y='70' font-size='58' text-anchor='middle' fill='white' font-family='Georgia,serif' font-weight='bold'>B</text></svg>" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="panel">
+      <a href="/" class="brand">Book<span class="accent-word">MyBoard</span></a>
+      <h1>Set a new password</h1>
+      <p class="sub">Choose something you haven't used before.</p>
+
+      <div class="form-error" id="err"></div>
+      <div class="form-success" id="ok"></div>
+
+      <div id="form">
+        <div class="form-group">
+          <label>New password</label>
+          <input type="password" id="password" autocomplete="new-password" placeholder="At least 6 characters" />
+        </div>
+        <div class="form-group">
+          <label>Confirm new password</label>
+          <input type="password" id="confirm" autocomplete="new-password" placeholder="Repeat it" />
+        </div>
+        <button class="btn btn-primary btn-block" id="submit">Update password</button>
+      </div>
+
+      <p class="auth-alt"><a href="/login.html">Back to log in</a></p>
+    </div>
+  </div>
+
+  <script src="/shared.js"></script>
+  <script>
+    const el = (id) => document.getElementById(id);
+    const token = new URLSearchParams(location.search).get("token");
+
+    function fail(msg) {
+      el("err").textContent = msg;
+      el("err").style.display = "block";
+    }
+
+    if (!token) {
+      el("form").style.display = "none";
+      fail("This reset link is incomplete. Please request a new one.");
+    }
+
+    async function submit() {
+      const btn = el("submit");
+      el("err").style.display = "none";
+      if (el("password").value !== el("confirm").value) return fail("Those passwords don't match.");
+      btn.disabled = true;
+      btn.textContent = "Updating…";
+      try {
+        await api("/api/reset-password", {
+          method: "POST",
+          body: JSON.stringify({ token, password: el("password").value }),
+        });
+        el("form").style.display = "none";
+        el("ok").innerHTML = 'Password updated. <a href="/login.html">Log in</a> with your new password.';
+        el("ok").style.display = "block";
+      } catch (e) {
+        fail(e.message);
+        btn.disabled = false;
+        btn.textContent = "Update password";
+      }
+    }
+
+    el("submit").addEventListener("click", submit);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !el("submit").disabled) submit();
+    });
+  </script>
+</body>
+</html>

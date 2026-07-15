@@ -64,7 +64,7 @@
 
       document.title = l.title + " — BookMyBoard";
       const banner = document.getElementById("banner");
-      banner.innerHTML = `<img src="${themePhoto(l.theme, 1000)}" alt="${l.type} at ${l.location}" />`;
+      banner.innerHTML = `<img src="${themePhoto(l.theme, 1000)}" alt="${esc(l.type)} at ${esc(l.location)}" />`;
       const titleEl = document.getElementById("title");
       titleEl.textContent = l.title;
       document.getElementById("loc").textContent = l.location + ", " + l.city;
@@ -73,18 +73,18 @@
       document.getElementById("price").innerHTML =
         formatINR(l.pricePerMonth) + " <span>/ month</span>";
       document.getElementById("specs").innerHTML = [
-        spec("Format", l.type),
-        spec("Size", l.size),
+        spec("Format", esc(l.type)),
+        spec("Size", esc(l.size)),
         spec("Daily traffic", formatTraffic(l.trafficPerDay) + " vehicles"),
-        spec("Facing", l.facing || "—"),
+        spec("Facing", esc(l.facing) || "—"),
         spec("Lighting", l.lit ? "Backlit" : "Non-lit"),
-        spec("City", l.city),
+        spec("City", esc(l.city)),
       ].join("");
 
       if (bookedRanges.length) {
         document.getElementById("booked-block").style.display = "block";
         document.getElementById("booked-list").innerHTML = bookedRanges
-          .map((r) => `${r.startDate} → ${r.endDate}`)
+          .map((r) => `${esc(r.startDate)} → ${esc(r.endDate)}`)
           .join("<br>");
       }
 

@@ -59,7 +59,66 @@ db.exec(`
     user_id    TEXT NOT NULL REFERENCES users(id),
     created_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS password_resets (
+    token      TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id),
+    expires_at TEXT NOT NULL,
+    used       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  -- Short-lived CSRF state for the Google OAuth round trip.
+  CREATE TABLE IF NOT EXISTS oauth_states (
+    state      TEXT PRIMARY KEY,
+    role       TEXT NOT NULL,
+    next_url   TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  -- Supply-side partners: billboard fabricators, banner printers,
+  -- digital-screen suppliers and installers.
+  CREATE TABLE IF NOT EXISTS vendors (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id),
+    name        TEXT NOT NULL,
+    category    TEXT NOT NULL,
+    city        TEXT NOT NULL,
+    description TEXT,
+    phone       TEXT,
+    min_price   INTEGER,
+    created_at  TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS service_requests (
+    id           TEXT PRIMARY KEY,
+    vendor_id    TEXT NOT NULL REFERENCES vendors(id),
+    requester_id TEXT NOT NULL REFERENCES users(id),
+    message      TEXT,
+    status       TEXT NOT NULL DEFAULT 'open',
+    created_at   TEXT NOT NULL
+  );
 `);
+
+// ---------- migrations ----------
+// Adds columns to existing databases without destroying data.
+function ensureColumn(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+ensureColumn("users", "google_id", "TEXT");
+// Money is stored in paise (integer) to avoid floating-point drift.
+ensureColumn("bookings", "amount_total", "INTEGER");
+ensureColumn("bookings", "platform_fee", "INTEGER");
+ensureColumn("bookings", "owner_payout", "INTEGER");
+ensureColumn("bookings", "payment_status", "TEXT NOT NULL DEFAULT 'unpaid'");
+ensureColumn("bookings", "payment_order_id", "TEXT");
+ensureColumn("bookings", "payment_id", "TEXT");
 
 function hashPassword(pw, salt) {
   return crypto.scryptSync(pw, salt, 64).toString("hex");

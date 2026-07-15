@@ -2,9 +2,11 @@ const express = require("express");
 const crypto = require("crypto");
 const path = require("path");
 const { db, hashPassword, listingToApi } = require("./db");
+const X = require("./integrations");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const ROLES = ["client", "owner", "vendor"];
 
 // ---------- helpers ----------
 
@@ -57,14 +59,25 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
+// Tells the front-end which optional integrations are switched on, so it can
+// hide the Google button / payment step when they are not configured.
+app.get("/api/config", (req, res) => {
+  res.json({
+    googleEnabled: X.googleEnabled(),
+    razorpayEnabled: X.razorpayEnabled(),
+    razorpayKeyId: X.razorpayEnabled() ? X.RAZORPAY_KEY_ID : null,
+    commissionPct: X.COMMISSION_PCT,
+  });
+});
+
 // ---------- auth ----------
 
 app.post("/api/register", (req, res) => {
   const { name, email, password, role } = req.body || {};
   if (!name || !email || !password || !role)
     return res.status(400).json({ error: "All fields are required." });
-  if (!["client", "owner"].includes(role))
-    return res.status(400).json({ error: "Please choose whether you're advertising or listing a space." });
+  if (!ROLES.includes(role))
+    return res.status(400).json({ error: "Please choose whether you're advertising, listing a space, or offering services." });
   if (String(password).length < 6)
     return res.status(400).json({ error: "Password must be at least 6 characters." });
   const emailNorm = String(email).trim().toLowerCase();
@@ -111,6 +124,139 @@ app.post("/api/logout", (req, res) => {
 app.get("/api/me", (req, res) => {
   const user = currentUser(req);
   res.json({ user: user ? publicUser(user) : null });
+});
+
+// ---------- password reset ----------
+
+app.post("/api/forgot-password", async (req, res) => {
+  const email = String((req.body || {}).email || "").trim().toLowerCase();
+  // Always answer the same way: revealing which emails exist would leak accounts.
+  const generic = {
+    ok: true,
+    message: "If an account exists for that email, we've sent a reset link.",
+  };
+  if (!email) return res.status(400).json({ error: "Please enter your email." });
+
+  const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  if (!user) return res.json(generic);
+
+  const token = crypto.randomBytes(32).toString("hex");
+  db.prepare(
+    `INSERT INTO password_resets (token, user_id, expires_at, used, created_at)
+     VALUES (?, ?, ?, 0, ?)`
+  ).run(
+    token,
+    user.id,
+    new Date(Date.now() + 60 * 60 * 1000).toISOString(), // valid 1 hour
+    new Date().toISOString()
+  );
+
+  const link = `${X.appUrl(req)}/reset.html?token=${token}`;
+  try {
+    await X.sendEmail({
+      to: user.email,
+      subject: "Reset your BookMyBoard password",
+      text:
+        `Hi ${user.name},\n\n` +
+        `Use the link below to set a new password. It expires in one hour.\n\n${link}\n\n` +
+        `If you didn't ask for this, you can ignore this email.`,
+    });
+  } catch (e) {
+    console.error("Password reset email error:", e.message);
+  }
+  res.json(generic);
+});
+
+app.post("/api/reset-password", (req, res) => {
+  const { token, password } = req.body || {};
+  if (!token || !password)
+    return res.status(400).json({ error: "Missing token or password." });
+  if (String(password).length < 6)
+    return res.status(400).json({ error: "Password must be at least 6 characters." });
+
+  const row = db.prepare("SELECT * FROM password_resets WHERE token = ?").get(String(token));
+  if (!row || row.used || row.expires_at < new Date().toISOString())
+    return res.status(400).json({ error: "This reset link is invalid or has expired." });
+
+  const salt = crypto.randomBytes(16).toString("hex");
+  db.prepare("UPDATE users SET salt = ?, password_hash = ? WHERE id = ?").run(
+    salt,
+    hashPassword(password, salt),
+    row.user_id
+  );
+  db.prepare("UPDATE password_resets SET used = 1 WHERE token = ?").run(String(token));
+  // Signing out other sessions limits the damage if a link was intercepted.
+  db.prepare("DELETE FROM sessions WHERE user_id = ?").run(row.user_id);
+  res.json({ ok: true });
+});
+
+// ---------- Google sign-in ----------
+
+app.get("/auth/google", (req, res) => {
+  if (!X.googleEnabled()) return res.status(404).send("Google sign-in is not configured.");
+  const role = ROLES.includes(req.query.role) ? req.query.role : "client";
+  const next = typeof req.query.next === "string" && req.query.next.startsWith("/")
+    ? req.query.next
+    : "/dashboard.html";
+  // Random state carries role/next across the round trip and blocks CSRF.
+  const state = crypto.randomBytes(16).toString("hex");
+  db.prepare(
+    `INSERT INTO oauth_states (state, role, next_url, expires_at, used, created_at)
+     VALUES (?, ?, ?, ?, 0, ?)`
+  ).run(
+    state,
+    role,
+    next,
+    new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    new Date().toISOString()
+  );
+  res.redirect(X.googleAuthUrl(req, state));
+});
+
+app.get("/auth/google/callback", async (req, res) => {
+  if (!X.googleEnabled()) return res.status(404).send("Google sign-in is not configured.");
+  const { code, state } = req.query;
+  const stateRow = db.prepare("SELECT * FROM oauth_states WHERE state = ?").get(String(state || ""));
+  if (!code || !stateRow || stateRow.used || stateRow.expires_at < new Date().toISOString())
+    return res.redirect("/login.html?error=" + encodeURIComponent("Google sign-in expired. Please try again."));
+  db.prepare("UPDATE oauth_states SET used = 1 WHERE state = ?").run(String(state));
+
+  const intent = { role: stateRow.role, next: stateRow.next_url };
+
+  try {
+    const profile = await X.googleExchange(req, String(code));
+    let user = db.prepare("SELECT * FROM users WHERE google_id = ?").get(profile.googleId);
+    if (!user) user = db.prepare("SELECT * FROM users WHERE email = ?").get(profile.email);
+
+    if (user) {
+      // Link the Google account to the existing local account on first use.
+      if (!user.google_id)
+        db.prepare("UPDATE users SET google_id = ? WHERE id = ?").run(profile.googleId, user.id);
+    } else {
+      const salt = crypto.randomBytes(16).toString("hex");
+      user = {
+        id: "u-" + crypto.randomBytes(6).toString("hex"),
+        name: profile.name,
+        email: profile.email,
+        role: ROLES.includes(intent.role) ? intent.role : "client",
+        salt,
+        // Unusable random password: Google users sign in via OAuth, and can set
+        // a real password later through the forgot-password flow.
+        password_hash: hashPassword(crypto.randomBytes(32).toString("hex"), salt),
+        google_id: profile.googleId,
+        created_at: new Date().toISOString(),
+      };
+      db.prepare(
+        `INSERT INTO users (id, name, email, role, salt, password_hash, google_id, created_at)
+         VALUES (@id, @name, @email, @role, @salt, @password_hash, @google_id, @created_at)`
+      ).run(user);
+    }
+    startSession(res, user.id);
+    const next = String(intent.next || "/dashboard.html");
+    res.redirect(next.startsWith("/") ? next : "/dashboard.html");
+  } catch (e) {
+    res.redirect("/login.html?error=" + encodeURIComponent(e.message || "Google sign-in failed."));
+  }
 });
 
 // ---------- listings ----------
@@ -187,9 +333,14 @@ app.post("/api/listings", requireAuth("owner"), (req, res) => {
 
 // ---------- bookings ----------
 
+// Days are inclusive of both the start and end date.
+function daysBetween(startDate, endDate) {
+  return Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
+}
+
 app.post("/api/bookings", requireAuth("client"), (req, res) => {
   const { listingId, startDate, endDate, message } = req.body || {};
-  const listing = db.prepare("SELECT id FROM listings WHERE id = ?").get(listingId);
+  const listing = db.prepare("SELECT * FROM listings WHERE id = ?").get(listingId);
   if (!listing) return res.status(404).json({ error: "Listing not found." });
   if (!startDate || !endDate)
     return res.status(400).json({ error: "Start and end dates are required." });
@@ -202,6 +353,12 @@ app.post("/api/bookings", requireAuth("client"), (req, res) => {
   if (approved.some((b) => overlaps(startDate, endDate, b.start_date, b.end_date)))
     return res.status(409).json({ error: "That space is already booked for part of those dates." });
 
+  // Lock the quote at request time from the price the advertiser actually saw,
+  // so it cannot move between request and approval.
+  const days = daysBetween(startDate, endDate);
+  const rupees = Math.round((listing.price_per_month * days) / 30);
+  const { amountTotal, platformFee, ownerPayout } = X.splitAmount(rupees * 100);
+
   const booking = {
     id: "b-" + crypto.randomBytes(6).toString("hex"),
     listing_id: listingId,
@@ -210,13 +367,71 @@ app.post("/api/bookings", requireAuth("client"), (req, res) => {
     end_date: endDate,
     message: String(message || "").trim(),
     status: "pending",
+    amount_total: amountTotal,
+    platform_fee: platformFee,
+    owner_payout: ownerPayout,
+    payment_status: "unpaid",
     created_at: new Date().toISOString(),
   };
   db.prepare(
-    `INSERT INTO bookings (id, listing_id, client_id, start_date, end_date, message, status, created_at)
-     VALUES (@id, @listing_id, @client_id, @start_date, @end_date, @message, @status, @created_at)`
+    `INSERT INTO bookings (id, listing_id, client_id, start_date, end_date, message, status,
+                           amount_total, platform_fee, owner_payout, payment_status, created_at)
+     VALUES (@id, @listing_id, @client_id, @start_date, @end_date, @message, @status,
+             @amount_total, @platform_fee, @owner_payout, @payment_status, @created_at)`
   ).run(booking);
   res.status(201).json({ booking });
+});
+
+// ---------- payments ----------
+// Flow: owner approves -> advertiser pays -> booking is confirmed. The platform
+// commission is recorded on every paid booking.
+
+app.post("/api/bookings/:id/pay", requireAuth("client"), async (req, res) => {
+  if (!X.razorpayEnabled())
+    return res.status(503).json({ error: "Online payment isn't switched on yet." });
+  const booking = db.prepare("SELECT * FROM bookings WHERE id = ?").get(req.params.id);
+  if (!booking || booking.client_id !== req.user.id)
+    return res.status(404).json({ error: "Booking not found." });
+  if (booking.status !== "approved")
+    return res.status(400).json({ error: "This booking isn't approved yet." });
+  if (booking.payment_status === "paid")
+    return res.status(400).json({ error: "This booking is already paid." });
+
+  try {
+    const order = await X.razorpayCreateOrder({
+      amountPaise: booking.amount_total,
+      receipt: booking.id,
+      notes: { bookingId: booking.id, listingId: booking.listing_id },
+    });
+    db.prepare("UPDATE bookings SET payment_order_id = ? WHERE id = ?").run(order.id, booking.id);
+    res.json({ orderId: order.id, amount: order.amount, currency: order.currency });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+app.post("/api/bookings/:id/pay/verify", requireAuth("client"), (req, res) => {
+  if (!X.razorpayEnabled())
+    return res.status(503).json({ error: "Online payment isn't switched on yet." });
+  const { paymentId, signature } = req.body || {};
+  const booking = db.prepare("SELECT * FROM bookings WHERE id = ?").get(req.params.id);
+  if (!booking || booking.client_id !== req.user.id)
+    return res.status(404).json({ error: "Booking not found." });
+  if (!booking.payment_order_id)
+    return res.status(400).json({ error: "No payment was started for this booking." });
+
+  const ok = X.razorpayVerify({
+    orderId: booking.payment_order_id,
+    paymentId,
+    signature,
+  });
+  if (!ok) return res.status(400).json({ error: "Payment could not be verified." });
+
+  db.prepare("UPDATE bookings SET payment_status = 'paid', payment_id = ? WHERE id = ?").run(
+    String(paymentId),
+    booking.id
+  );
+  res.json({ ok: true });
 });
 
 app.get("/api/bookings", requireAuth(), (req, res) => {
@@ -258,6 +473,11 @@ app.get("/api/bookings", requireAuth(), (req, res) => {
     listingCity: b.listingCity,
     pricePerMonth: b.pricePerMonth,
     clientName: b.clientName,
+    // Money is stored in paise; expose rupees to the UI.
+    amountTotal: (b.amount_total || 0) / 100,
+    platformFee: (b.platform_fee || 0) / 100,
+    ownerPayout: (b.owner_payout || 0) / 100,
+    paymentStatus: b.payment_status || "unpaid",
   }));
   res.json({ bookings });
 });
@@ -288,6 +508,156 @@ app.post("/api/bookings/:id/decision", requireAuth("owner"), (req, res) => {
   }
   db.prepare("UPDATE bookings SET status = ? WHERE id = ?").run(status, booking.id);
   res.json({ booking: { ...booking, status } });
+});
+
+// ---------- vendors (printing, fabrication, digital screens, installation) ----------
+
+const VENDOR_CATEGORIES = [
+  "Banner & Flex Printing",
+  "Billboard Fabrication",
+  "Digital LED Screen Supply",
+  "Installation & Mounting",
+  "Creative & Design",
+];
+
+app.get("/api/vendor-categories", (req, res) => res.json({ categories: VENDOR_CATEGORIES }));
+
+function vendorToApi(v) {
+  return {
+    id: v.id,
+    name: v.name,
+    category: v.category,
+    city: v.city,
+    description: v.description || "",
+    phone: v.phone || "",
+    minPrice: v.min_price || 0,
+  };
+}
+
+app.get("/api/vendors", (req, res) => {
+  const { category, city, q } = req.query;
+  const clauses = [];
+  const params = {};
+  if (category && category !== "all") { clauses.push("category = @category"); params.category = category; }
+  if (city && city !== "all") { clauses.push("city = @city"); params.city = city; }
+  if (q) {
+    clauses.push("(LOWER(name || ' ' || city || ' ' || category || ' ' || IFNULL(description,'')) LIKE @q)");
+    params.q = "%" + String(q).toLowerCase() + "%";
+  }
+  const where = clauses.length ? "WHERE " + clauses.join(" AND ") : "";
+  const rows = db.prepare(`SELECT * FROM vendors ${where} ORDER BY created_at DESC`).all(params);
+  const cities = db.prepare("SELECT DISTINCT city FROM vendors ORDER BY city").all().map((r) => r.city);
+  res.json({ vendors: rows.map(vendorToApi), cities, categories: VENDOR_CATEGORIES });
+});
+
+app.get("/api/vendors/:id", (req, res) => {
+  const v = db.prepare("SELECT * FROM vendors WHERE id = ?").get(req.params.id);
+  if (!v) return res.status(404).json({ error: "Supplier not found." });
+  res.json({ vendor: vendorToApi(v) });
+});
+
+// A vendor account owns exactly one profile.
+app.get("/api/my-vendor", requireAuth("vendor"), (req, res) => {
+  const v = db.prepare("SELECT * FROM vendors WHERE user_id = ?").get(req.user.id);
+  res.json({ vendor: v ? vendorToApi(v) : null });
+});
+
+app.post("/api/vendors", requireAuth("vendor"), (req, res) => {
+  const { name, category, city, description, phone, minPrice } = req.body || {};
+  if (!name || !category || !city)
+    return res.status(400).json({ error: "Name, category and city are required." });
+  if (!VENDOR_CATEGORIES.includes(category))
+    return res.status(400).json({ error: "Please choose a valid category." });
+
+  const existing = db.prepare("SELECT id FROM vendors WHERE user_id = ?").get(req.user.id);
+  const fields = {
+    name: String(name).trim(),
+    category,
+    city: String(city).trim(),
+    description: String(description || "").trim(),
+    phone: String(phone || "").trim(),
+    min_price: Number(minPrice) || 0,
+  };
+
+  if (existing) {
+    db.prepare(
+      `UPDATE vendors SET name=@name, category=@category, city=@city,
+              description=@description, phone=@phone, min_price=@min_price
+       WHERE id=@id`
+    ).run({ ...fields, id: existing.id });
+    return res.json({ vendor: vendorToApi({ ...fields, id: existing.id }) });
+  }
+
+  const vendor = {
+    id: "v-" + crypto.randomBytes(6).toString("hex"),
+    user_id: req.user.id,
+    ...fields,
+    created_at: new Date().toISOString(),
+  };
+  db.prepare(
+    `INSERT INTO vendors (id, user_id, name, category, city, description, phone, min_price, created_at)
+     VALUES (@id, @user_id, @name, @category, @city, @description, @phone, @min_price, @created_at)`
+  ).run(vendor);
+  res.status(201).json({ vendor: vendorToApi(vendor) });
+});
+
+app.post("/api/service-requests", requireAuth(), (req, res) => {
+  const { vendorId, message } = req.body || {};
+  const vendor = db.prepare("SELECT * FROM vendors WHERE id = ?").get(vendorId);
+  if (!vendor) return res.status(404).json({ error: "Supplier not found." });
+  if (vendor.user_id === req.user.id)
+    return res.status(400).json({ error: "You can't send a request to yourself." });
+
+  const request = {
+    id: "sr-" + crypto.randomBytes(6).toString("hex"),
+    vendor_id: vendorId,
+    requester_id: req.user.id,
+    message: String(message || "").trim(),
+    status: "open",
+    created_at: new Date().toISOString(),
+  };
+  db.prepare(
+    `INSERT INTO service_requests (id, vendor_id, requester_id, message, status, created_at)
+     VALUES (@id, @vendor_id, @requester_id, @message, @status, @created_at)`
+  ).run(request);
+  res.status(201).json({ request });
+});
+
+app.get("/api/service-requests", requireAuth(), (req, res) => {
+  const rows =
+    req.user.role === "vendor"
+      ? db
+          .prepare(
+            `SELECT s.*, u.name AS requesterName, u.email AS requesterEmail, v.name AS vendorName
+               FROM service_requests s
+               JOIN vendors v ON v.id = s.vendor_id
+               JOIN users u ON u.id = s.requester_id
+              WHERE v.user_id = ?
+              ORDER BY s.created_at DESC`
+          )
+          .all(req.user.id)
+      : db
+          .prepare(
+            `SELECT s.*, u.name AS requesterName, u.email AS requesterEmail, v.name AS vendorName
+               FROM service_requests s
+               JOIN vendors v ON v.id = s.vendor_id
+               JOIN users u ON u.id = s.requester_id
+              WHERE s.requester_id = ?
+              ORDER BY s.created_at DESC`
+          )
+          .all(req.user.id);
+  res.json({
+    requests: rows.map((r) => ({
+      id: r.id,
+      vendorName: r.vendorName,
+      requesterName: r.requesterName,
+      // The vendor needs a way to reply; the requester already knows their own address.
+      requesterEmail: req.user.role === "vendor" ? r.requesterEmail : null,
+      message: r.message,
+      status: r.status,
+      createdAt: r.created_at,
+    })),
+  });
 });
 
 app.listen(PORT, () => {

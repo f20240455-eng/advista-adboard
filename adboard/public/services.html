@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Find vetted banner printers, billboard fabricators, digital LED screen suppliers and installers for your outdoor campaign." />
+  <title>Suppliers — BookMyBoard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230b6e5c'/><text x='50' y='70' font-size='58' text-anchor='middle' fill='white' font-family='Georgia,serif' font-weight='bold'>B</text></svg>" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="page-head">
+      <h1>Suppliers &amp; services</h1>
+      <p>Printing, fabrication, screens and installation — everything you need once the space is booked.</p>
+    </div>
+
+    <div class="filters">
+      <input type="search" id="f-q" placeholder="Search suppliers…" />
+      <select id="f-cat"><option value="all">All services</option></select>
+      <select id="f-city"><option value="all">All cities</option></select>
+      <div class="reset-wrap"><button class="btn btn-outline btn-small" id="f-reset">Reset</button></div>
+    </div>
+
+    <div class="results-bar">
+      <span class="count" id="count"></span>
+    </div>
+
+    <div class="card-grid" id="grid"></div>
+    <div class="empty" id="empty" style="display:none;"></div>
+  </div>
+
+  <!-- quote request -->
+  <div class="modal-backdrop" id="modal" style="display:none;">
+    <div class="modal">
+      <h3 id="modal-title">Request a quote</h3>
+      <div class="form-error" id="m-err"></div>
+      <div class="form-success" id="m-ok"></div>
+      <div id="m-form">
+        <div class="form-group">
+          <label>What do you need?</label>
+          <textarea id="m-msg" rows="4" placeholder="e.g. 40x20 ft flex print and installation for a highway hoarding, needed by the 20th."></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-outline" id="m-cancel">Cancel</button>
+          <button class="btn btn-primary" id="m-send">Send request</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer></footer>
+
+  <script src="/shared.js"></script>
+  <script>
+    const el = (id) => document.getElementById(id);
+    let me = null;
+    let filtersLoaded = false;
+    let activeVendor = null;
+
+    async function load() {
+      const params = new URLSearchParams();
+      if (el("f-q").value) params.set("q", el("f-q").value);
+      if (el("f-cat").value !== "all") params.set("category", el("f-cat").value);
+      if (el("f-city").value !== "all") params.set("city", el("f-city").value);
+      const { vendors, cities, categories } = await api("/api/vendors?" + params);
+
+      if (!filtersLoaded) {
+        categories.forEach((c) =>
+          el("f-cat").insertAdjacentHTML("beforeend", `<option>${esc(c)}</option>`)
+        );
+        cities.forEach((c) =>
+          el("f-city").insertAdjacentHTML("beforeend", `<option>${esc(c)}</option>`)
+        );
+        filtersLoaded = true;
+      }
+
+      el("count").innerHTML =
+        `<strong>${vendors.length}</strong> supplier${vendors.length === 1 ? "" : "s"}`;
+      el("grid").innerHTML = vendors.map(vendorCardHTML).join("");
+
+      const filtering = el("f-q").value || el("f-cat").value !== "all" || el("f-city").value !== "all";
+      el("empty").style.display = vendors.length ? "none" : "block";
+      el("empty").innerHTML = filtering
+        ? "No suppliers match those filters."
+        : 'No suppliers listed yet. <a href="/login.html?mode=register&role=vendor">List your service →</a>';
+
+      el("grid").querySelectorAll("button[data-vendor]").forEach((b) =>
+        b.addEventListener("click", () => openModal(b.dataset.vendor))
+      );
+    }
+
+    function openModal(vendorId) {
+      if (!me) {
+        window.location.href =
+          "/login.html?next=" + encodeURIComponent(location.pathname);
+        return;
+      }
+      activeVendor = vendorId;
+      el("m-err").style.display = el("m-ok").style.display = "none";
+      el("m-form").style.display = "block";
+      el("m-msg").value = "";
+      el("modal").style.display = "flex";
+    }
+
+    el("m-cancel").addEventListener("click", () => (el("modal").style.display = "none"));
+    el("modal").addEventListener("click", (e) => {
+      if (e.target === el("modal")) el("modal").style.display = "none";
+    });
+
+    el("m-send").addEventListener("click", async () => {
+      el("m-err").style.display = "none";
+      try {
+        await api("/api/service-requests", {
+          method: "POST",
+          body: JSON.stringify({ vendorId: activeVendor, message: el("m-msg").value }),
+        });
+        el("m-form").style.display = "none";
+        el("m-ok").textContent = "Request sent. The supplier will get back to you.";
+        el("m-ok").style.display = "block";
+        setTimeout(() => (el("modal").style.display = "none"), 1800);
+      } catch (e) {
+        el("m-err").textContent = e.message;
+        el("m-err").style.display = "block";
+      }
+    });
+
+    ["input", "change"].forEach((evt) => {
+      ["f-q", "f-cat", "f-city"].forEach((id) => el(id).addEventListener(evt, load));
+    });
+    el("f-reset").addEventListener("click", () => {
+      el("f-q").value = "";
+      el("f-cat").value = "all";
+      el("f-city").value = "all";
+      load();
+    });
+
+    (async () => {
+      me = await getMe();
+      renderNav(me, "services");
+      renderFooter();
+      load();
+    })();
+  </script>
+</body>
+</html>
