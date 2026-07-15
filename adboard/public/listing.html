@@ -24,10 +24,6 @@
         <div class="spec-grid" id="specs"></div>
         <h3 style="margin-bottom: 8px;">About this space</h3>
         <p id="desc" style="color: var(--muted);"></p>
-        <div id="booked-block" style="margin-top: 24px; display: none;">
-          <h3 style="margin-bottom: 8px;">Already booked</h3>
-          <div id="booked-list" style="color: var(--muted); font-size: 0.9rem;"></div>
-        </div>
       </div>
 
       <div>
@@ -65,7 +61,9 @@
         document.getElementById("notfound").style.display = "block";
         return;
       }
-      const { listing: l, ownerName, bookedRanges } = data;
+      const { listing: l, ownerName, bookedRanges, blockedDates } = data;
+      const bookedSet = new Set(bookedRanges.flatMap((r) => expandDateRange(r.startDate, r.endDate)));
+      const blockedSet = new Set(blockedDates);
 
       document.title = l.title + " — BookMyBoard";
       const banner = document.getElementById("banner");
@@ -86,13 +84,6 @@
         spec("City", esc(l.city)),
       ].join("");
 
-      if (bookedRanges.length) {
-        document.getElementById("booked-block").style.display = "block";
-        document.getElementById("booked-list").innerHTML = bookedRanges
-          .map((r) => `${esc(r.startDate)} → ${esc(r.endDate)}`)
-          .join("<br>");
-      }
-
       const area = document.getElementById("booking-area");
       if (!user) {
         area.innerHTML = `
@@ -107,52 +98,70 @@
         area.innerHTML = `<p style="color: var(--muted); font-size: 0.9rem;">
           You're logged in as a space owner. Only advertiser accounts can book spaces.</p>`;
       } else {
-        const today = new Date().toISOString().slice(0, 10);
         area.innerHTML = `
           <div class="form-error" id="err"></div>
           <div class="form-success" id="ok"></div>
-          <div class="form-row">
-            <div class="form-group"><label>Start date</label><input type="date" id="b-start" min="${today}" /></div>
-            <div class="form-group"><label>End date</label><input type="date" id="b-end" min="${today}" /></div>
+          <div class="cal-wrap"><div id="cal"></div></div>
+          <div class="cal-legend">
+            <span><i class="i-open"></i>Open</span>
+            <span><i class="i-sel"></i>Selected</span>
+            <span><i class="i-booked"></i>Booked</span>
+            <span><i class="i-blocked"></i>Unavailable</span>
           </div>
+          <p class="cal-selection-line" id="sel-line">Tap a start date, then an end date.</p>
           <div class="estimate" id="estimate">
             <div class="row"><span>Campaign length</span><strong id="est-days"></strong></div>
             <div class="row"><span>Est. total impressions</span><strong id="est-imp"></strong></div>
             <div class="row total"><span>Estimated cost</span><strong id="est-cost"></strong></div>
           </div>
-          <div class="form-group">
+          <div class="form-group" style="margin-top:14px;">
             <label>Message to owner (optional)</label>
             <textarea id="b-msg" rows="3" placeholder="Tell them about your campaign…"></textarea>
           </div>
-          <button class="btn btn-primary" id="b-submit" style="width:100%;">Request booking</button>
+          <button class="btn btn-primary" id="b-submit" style="width:100%;" disabled>Pick your dates</button>
           <p style="color: var(--muted); font-size: 0.78rem; text-align: center; margin-top: 12px;">
             No payment now — the owner confirms your dates first.
           </p>`;
 
-        const startEl = document.getElementById("b-start");
-        const endEl = document.getElementById("b-end");
+        let picked = { selStart: null, selEnd: null };
+        const submitBtn = document.getElementById("b-submit");
+
         function updateEstimate() {
           const box = document.getElementById("estimate");
-          if (!startEl.value || !endEl.value || endEl.value < startEl.value) {
+          const line = document.getElementById("sel-line");
+          const { selStart, selEnd } = picked;
+          if (!selStart) {
+            line.textContent = "Tap a start date, then an end date.";
             box.style.display = "none";
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Pick your dates";
             return;
           }
-          const days =
-            Math.round((new Date(endEl.value) - new Date(startEl.value)) / 86400000) + 1;
-          document.getElementById("est-days").textContent =
-            days + (days === 1 ? " day" : " days");
-          document.getElementById("est-imp").textContent =
-            "~" + formatTraffic(l.trafficPerDay * days);
-          document.getElementById("est-cost").textContent =
-            formatINR(Math.round((l.pricePerMonth * days) / 30));
+          if (!selEnd) {
+            line.innerHTML = `Start: <strong>${esc(selStart)}</strong> — now tap an end date.`;
+            box.style.display = "none";
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Pick your dates";
+            return;
+          }
+          const days = Math.round((new Date(selEnd) - new Date(selStart)) / 86400000) + 1;
+          line.innerHTML = `<strong>${esc(selStart)}</strong> → <strong>${esc(selEnd)}</strong> · tap again to restart`;
+          document.getElementById("est-days").textContent = days + (days === 1 ? " day" : " days");
+          document.getElementById("est-imp").textContent = "~" + formatTraffic(l.trafficPerDay * days);
+          document.getElementById("est-cost").textContent = formatINR(Math.round((l.pricePerMonth * days) / 30));
           box.style.display = "block";
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Request booking";
         }
-        startEl.addEventListener("change", () => {
-          endEl.min = startEl.value || today;
-          updateEstimate();
+
+        mountCalendar(document.getElementById("cal"), {
+          booked: bookedSet,
+          blocked: blockedSet,
+          mode: "pick",
+          onChange: (sel) => { picked = sel; updateEstimate(); },
         });
-        endEl.addEventListener("change", updateEstimate);
-        document.getElementById("b-submit").addEventListener("click", async () => {
+
+        submitBtn.addEventListener("click", async () => {
           const err = document.getElementById("err");
           const ok = document.getElementById("ok");
           err.style.display = ok.style.display = "none";
@@ -161,13 +170,14 @@
               method: "POST",
               body: JSON.stringify({
                 listingId: l.id,
-                startDate: document.getElementById("b-start").value,
-                endDate: document.getElementById("b-end").value,
+                startDate: picked.selStart,
+                endDate: picked.selEnd,
                 message: document.getElementById("b-msg").value,
               }),
             });
             ok.textContent = "Request sent! Track it in your dashboard.";
             ok.style.display = "block";
+            submitBtn.disabled = true;
           } catch (e) {
             err.textContent = e.message;
             err.style.display = "block";

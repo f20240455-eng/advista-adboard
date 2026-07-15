@@ -142,12 +142,39 @@
       const paidTag =
         b.paymentStatus === "paid" ? `<span class="badge badge-paid">Paid</span>` : "";
 
+      // Proof-of-play: once a booking is approved, the owner can attach a
+      // mounting photo so the advertiser can see the creative actually went up.
+      let proofHTML = "";
+      if (b.status === "approved") {
+        const thumbs = b.photos
+          .map(
+            (p) => `
+          <a class="photo-thumb" href="${p.imageDataUrl}" target="_blank" rel="noopener" title="${esc(p.caption) || (p.kind === "monitoring" ? "Monitoring photo" : "Mounting photo")}">
+            <img src="${p.imageDataUrl}" alt="" />
+            <span class="kind-tag">${p.kind === "monitoring" ? "Live" : "Mount"}</span>
+          </a>`
+          )
+          .join("");
+        const addBtn = isOwner
+          ? `<label class="photo-add-btn" title="Add proof photo">+
+               <input type="file" accept="image/*" capture="environment" class="photo-input" data-booking="${esc(b.id)}" hidden />
+             </label>`
+          : "";
+        const statusLine = b.photos.length
+          ? `<p class="proof-status live">${b.photos.length} proof photo${b.photos.length > 1 ? "s" : ""} uploaded</p>`
+          : isOwner
+          ? `<p class="proof-status pending">Add a photo once the creative is up</p>`
+          : `<p class="proof-status pending">Waiting on a proof photo from the owner</p>`;
+        proofHTML = `<div class="photo-row">${thumbs}${addBtn}</div>${statusLine}`;
+      }
+
       return `
         <div class="booking-row">
           <div class="info">
             <h3>${esc(b.listingTitle)} <span style="color:var(--muted); font-weight:400;">· ${esc(b.listingCity)}</span></h3>
             <p>${who}${esc(b.startDate)} → ${esc(b.endDate)}${b.message ? " · “" + esc(b.message) + "”" : ""}</p>
             <p class="money-line">${money}</p>
+            ${proofHTML}
           </div>
           <div class="side">
             <span class="badge badge-${esc(b.status)}">${esc(b.status)}</span>
@@ -224,13 +251,105 @@
       target.querySelectorAll("button[data-pay]").forEach((btn) =>
         btn.addEventListener("click", () => payBooking(btn.dataset.pay, user))
       );
+      target.querySelectorAll("input.photo-input").forEach((input) =>
+        input.addEventListener("change", async (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          const label = input.closest("label");
+          label.style.opacity = "0.5";
+          try {
+            const dataUrl = await fileToCompressedDataUrl(file);
+            await api(`/api/bookings/${input.dataset.booking}/photos`, {
+              method: "POST",
+              body: JSON.stringify({ kind: "mount", imageDataUrl: dataUrl }),
+            });
+            showToast("Proof photo added.");
+            loadBookings(user);
+          } catch (err) {
+            showToast(err.message, "error");
+            label.style.opacity = "1";
+          }
+        })
+      );
+    }
+
+    // ---------- availability calendar (owner) ----------
+    function ownerListingRowHTML(l) {
+      return `
+        <div class="panel" style="padding:0; overflow:hidden;">
+          <div class="card-banner" style="aspect-ratio:16/7;">
+            <img src="${themePhoto(l.theme, 500)}" alt="" loading="lazy" />
+            <span class="type-tag">${esc(l.type)}</span>
+          </div>
+          <div class="card-body">
+            <h3>${esc(l.title)}</h3>
+            <p class="loc">${esc(l.location)}, ${esc(l.city)}</p>
+            <div class="card-meta">
+              <div class="price">${formatINR(l.pricePerMonth)}<span>/month</span></div>
+              <button type="button" class="btn btn-outline btn-small" data-cal-toggle="${esc(l.id)}">Manage calendar</button>
+            </div>
+            <div class="cal-wrap" id="cal-${esc(l.id)}" style="display:none; margin-top:14px;"></div>
+          </div>
+        </div>`;
+    }
+
+    async function toggleCalendar(listingId) {
+      const wrap = el("cal-" + listingId);
+      const hidden = wrap.style.display === "none";
+      if (!hidden) { wrap.style.display = "none"; return; }
+      wrap.style.display = "block";
+      if (wrap.dataset.loaded === "1") return;
+      wrap.dataset.loaded = "1";
+      wrap.innerHTML = '<p style="color:var(--muted); font-size:0.85rem;">Loading…</p>';
+
+      let data;
+      try {
+        data = await api(`/api/listings/${listingId}`);
+      } catch (e) {
+        wrap.innerHTML = `<p style="color:var(--danger); font-size:0.85rem;">${esc(e.message)}</p>`;
+        return;
+      }
+      const bookedSet = new Set(data.bookedRanges.flatMap((r) => expandDateRange(r.startDate, r.endDate)));
+      const blockedSet = new Set(data.blockedDates);
+
+      wrap.innerHTML = `<div id="calbox-${listingId}"></div>
+        <div class="cal-legend">
+          <span><i class="i-booked"></i>Booked</span>
+          <span><i class="i-blocked"></i>Blocked — tap an open day to block it, tap again to reopen</span>
+        </div>`;
+
+      const handle = mountCalendar(el("calbox-" + listingId), {
+        booked: bookedSet,
+        blocked: blockedSet,
+        mode: "manage",
+        onChange: async ({ date, wasBlocked }) => {
+          try {
+            if (wasBlocked) {
+              await api(`/api/listings/${listingId}/blocks/${date}`, { method: "DELETE" });
+              blockedSet.delete(date);
+            } else {
+              await api(`/api/listings/${listingId}/blocks`, {
+                method: "POST",
+                body: JSON.stringify({ date }),
+              });
+              blockedSet.add(date);
+            }
+            handle.setUnavailable(bookedSet, blockedSet);
+          } catch (e) {
+            showToast(e.message, "error");
+          }
+        },
+      });
     }
 
     async function loadOwnerListings() {
       const { listings } = await api("/api/my-listings");
       el("owner-listings").innerHTML = listings.length
-        ? listings.map(listingCardHTML).join("")
+        ? listings.map(ownerListingRowHTML).join("")
         : '<div class="empty">No listings yet — add your first space.</div>';
+      el("owner-listings").querySelectorAll("[data-cal-toggle]").forEach((btn) =>
+        btn.addEventListener("click", () => toggleCalendar(btn.dataset.calToggle))
+      );
     }
 
     // ---------- vendor ----------

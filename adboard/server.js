@@ -56,7 +56,8 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
   return aStart <= bEnd && bStart <= aEnd;
 }
 
-app.use(express.json());
+// Default 100kb is too small for proof-of-play photo uploads (base64 JPEGs).
+app.use(express.json({ limit: "4mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 // Tells the front-end which optional integrations are switched on, so it can
@@ -287,11 +288,48 @@ app.get("/api/listings/:id", (req, res) => {
   const bookedRanges = db
     .prepare("SELECT start_date AS startDate, end_date AS endDate FROM bookings WHERE listing_id = ? AND status = 'approved'")
     .all(row.id);
+  const blockedDates = db
+    .prepare("SELECT date FROM blocked_dates WHERE listing_id = ? ORDER BY date")
+    .all(row.id)
+    .map((r) => r.date);
   res.json({
     listing: listingToApi(row),
     ownerName: owner ? owner.name : "Unknown",
     bookedRanges,
+    blockedDates,
   });
+});
+
+// ---------- owner availability calendar ----------
+
+app.post("/api/listings/:id/blocks", requireAuth("owner"), (req, res) => {
+  const listing = db.prepare("SELECT owner_id FROM listings WHERE id = ?").get(req.params.id);
+  if (!listing) return res.status(404).json({ error: "Listing not found." });
+  if (listing.owner_id !== req.user.id)
+    return res.status(403).json({ error: "This isn't your listing." });
+
+  const date = String((req.body || {}).date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+    return res.status(400).json({ error: "A valid date is required." });
+
+  const clash = db
+    .prepare("SELECT 1 FROM bookings WHERE listing_id = ? AND status = 'approved' AND ? BETWEEN start_date AND end_date")
+    .get(req.params.id, date);
+  if (clash) return res.status(409).json({ error: "That date already has a confirmed booking." });
+
+  db.prepare(
+    `INSERT OR IGNORE INTO blocked_dates (id, listing_id, date, created_at) VALUES (?, ?, ?, ?)`
+  ).run("bd-" + crypto.randomBytes(6).toString("hex"), req.params.id, date, new Date().toISOString());
+  res.status(201).json({ ok: true });
+});
+
+app.delete("/api/listings/:id/blocks/:date", requireAuth("owner"), (req, res) => {
+  const listing = db.prepare("SELECT owner_id FROM listings WHERE id = ?").get(req.params.id);
+  if (!listing) return res.status(404).json({ error: "Listing not found." });
+  if (listing.owner_id !== req.user.id)
+    return res.status(403).json({ error: "This isn't your listing." });
+  db.prepare("DELETE FROM blocked_dates WHERE listing_id = ? AND date = ?").run(req.params.id, req.params.date);
+  res.json({ ok: true });
 });
 
 app.post("/api/listings", requireAuth("owner"), (req, res) => {
@@ -352,6 +390,12 @@ app.post("/api/bookings", requireAuth("client"), (req, res) => {
     .all(listingId);
   if (approved.some((b) => overlaps(startDate, endDate, b.start_date, b.end_date)))
     return res.status(409).json({ error: "That space is already booked for part of those dates." });
+
+  const blockedInRange = db
+    .prepare("SELECT 1 FROM blocked_dates WHERE listing_id = ? AND date BETWEEN ? AND ? LIMIT 1")
+    .get(listingId, startDate, endDate);
+  if (blockedInRange)
+    return res.status(409).json({ error: "The owner has marked part of those dates unavailable." });
 
   // Lock the quote at request time from the price the advertiser actually saw,
   // so it cannot move between request and approval.
@@ -434,6 +478,62 @@ app.post("/api/bookings/:id/pay/verify", requireAuth("client"), (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- proof-of-play photos ----------
+// Owners upload a mounting/monitoring photo against an approved booking so
+// the advertiser can see the creative actually went up — the single biggest
+// trust gap in static (non-digital) outdoor advertising.
+
+function photoToApi(p) {
+  return { id: p.id, kind: p.kind, imageDataUrl: p.image_data, caption: p.caption || "", createdAt: p.created_at };
+}
+
+function photosForBooking(bookingId) {
+  return db
+    .prepare("SELECT * FROM booking_photos WHERE booking_id = ? ORDER BY created_at")
+    .all(bookingId)
+    .map(photoToApi);
+}
+
+app.post("/api/bookings/:id/photos", requireAuth("owner"), (req, res) => {
+  const booking = db.prepare("SELECT * FROM bookings WHERE id = ?").get(req.params.id);
+  if (!booking) return res.status(404).json({ error: "Booking not found." });
+  const listing = db.prepare("SELECT owner_id FROM listings WHERE id = ?").get(booking.listing_id);
+  if (!listing || listing.owner_id !== req.user.id)
+    return res.status(403).json({ error: "This booking is not on your listing." });
+  if (booking.status !== "approved")
+    return res.status(400).json({ error: "Only approved bookings can have proof photos." });
+
+  const { kind, imageDataUrl, caption } = req.body || {};
+  if (!imageDataUrl || !/^data:image\/(jpeg|png|webp);base64,/.test(imageDataUrl))
+    return res.status(400).json({ error: "A valid image is required." });
+  if (imageDataUrl.length > 3_500_000)
+    return res.status(413).json({ error: "That image is too large. Try a smaller photo." });
+
+  const photo = {
+    id: "ph-" + crypto.randomBytes(6).toString("hex"),
+    booking_id: req.params.id,
+    kind: kind === "monitoring" ? "monitoring" : "mount",
+    image_data: imageDataUrl,
+    caption: String(caption || "").trim(),
+    created_at: new Date().toISOString(),
+  };
+  db.prepare(
+    `INSERT INTO booking_photos (id, booking_id, kind, image_data, caption, created_at)
+     VALUES (@id, @booking_id, @kind, @image_data, @caption, @created_at)`
+  ).run(photo);
+  res.status(201).json({ photo: photoToApi(photo) });
+});
+
+app.delete("/api/bookings/:id/photos/:photoId", requireAuth("owner"), (req, res) => {
+  const booking = db.prepare("SELECT * FROM bookings WHERE id = ?").get(req.params.id);
+  if (!booking) return res.status(404).json({ error: "Booking not found." });
+  const listing = db.prepare("SELECT owner_id FROM listings WHERE id = ?").get(booking.listing_id);
+  if (!listing || listing.owner_id !== req.user.id)
+    return res.status(403).json({ error: "This booking is not on your listing." });
+  db.prepare("DELETE FROM booking_photos WHERE id = ? AND booking_id = ?").run(req.params.photoId, req.params.id);
+  res.json({ ok: true });
+});
+
 app.get("/api/bookings", requireAuth(), (req, res) => {
   let rows;
   if (req.user.role === "client") {
@@ -478,6 +578,7 @@ app.get("/api/bookings", requireAuth(), (req, res) => {
     platformFee: (b.platform_fee || 0) / 100,
     ownerPayout: (b.owner_payout || 0) / 100,
     paymentStatus: b.payment_status || "unpaid",
+    photos: photosForBooking(b.id),
   }));
   res.json({ bookings });
 });

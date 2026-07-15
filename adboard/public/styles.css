@@ -416,6 +416,61 @@ nav {
 .tabs button:hover { color: var(--ink); }
 .tabs button.active { color: var(--brand); border-bottom-color: var(--brand); }
 
+/* ---------- availability calendar ---------- */
+.cal-wrap { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.cal-title { font-weight: 700; font-size: 0.92rem; }
+.cal-nav {
+  width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border-strong);
+  background: #fff; color: var(--ink); font-size: 1rem; line-height: 1; cursor: pointer;
+}
+.cal-nav:hover { border-color: var(--brand); color: var(--brand); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal-dow { margin-bottom: 4px; }
+.cal-dow span { text-align: center; font-size: 0.72rem; color: var(--muted); font-weight: 700; }
+.cal-cell {
+  aspect-ratio: 1; border-radius: 8px; border: none; background: var(--bg-soft);
+  font-size: 0.82rem; font-family: var(--font-body); color: var(--ink); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.cal-empty { background: transparent; cursor: default; }
+.cal-past { background: transparent; color: var(--border-strong); cursor: default; }
+.cal-open:hover { background: var(--brand-soft); }
+.cal-booked { background: var(--warn-soft); color: var(--warn); cursor: not-allowed; font-weight: 700; }
+.cal-blocked { background: var(--border); color: var(--muted); text-decoration: line-through; }
+.cal-sel-edge { background: var(--brand); color: #fff; font-weight: 700; }
+.cal-sel-range { background: var(--brand-soft); }
+.cal-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 0.78rem; color: var(--muted); }
+.cal-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.cal-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.cal-legend .i-open { background: var(--bg-soft); border: 1px solid var(--border-strong); }
+.cal-legend .i-booked { background: var(--warn-soft); }
+.cal-legend .i-blocked { background: var(--border); }
+.cal-legend .i-sel { background: var(--brand); }
+.cal-selection-line { font-size: 0.88rem; margin: 12px 0 0; color: var(--ink); }
+.cal-selection-line strong { color: var(--brand); }
+
+/* ---------- proof-of-play photos ---------- */
+.photo-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.photo-thumb {
+  width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border);
+  display: block; position: relative; flex-shrink: 0;
+}
+.photo-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.photo-thumb .kind-tag {
+  position: absolute; bottom: 0; left: 0; right: 0; background: rgba(20,17,12,0.72); color: #fff;
+  font-size: 0.6rem; text-align: center; padding: 1px 0; text-transform: uppercase; letter-spacing: 0.03em;
+}
+.photo-add-btn {
+  width: 64px; height: 64px; border-radius: 8px; border: 1.5px dashed var(--border-strong);
+  background: var(--bg-soft); color: var(--muted); font-size: 1.4rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.photo-add-btn:hover { border-color: var(--brand); color: var(--brand); }
+.proof-status { font-size: 0.8rem; font-weight: 600; margin-top: 8px; display: flex; align-items: center; gap: 6px; }
+.proof-status.live { color: var(--success); }
+.proof-status.pending { color: var(--warn); }
+
 /* ---------- install / PWA ---------- */
 /* Desktop-only: the 375px nav has no room for a fourth control, so phones get
    the bottom banner instead. Shown only once the browser says we're installable. */

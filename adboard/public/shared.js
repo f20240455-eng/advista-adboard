@@ -34,6 +34,146 @@ function formatTraffic(n) {
   return String(n);
 }
 
+// ---------- availability calendar ----------
+// A small, dependency-free month calendar used two ways: 'pick' lets an
+// advertiser click a start and end day instead of typing raw dates; 'manage'
+// lets an owner click a day to toggle it blocked. Both share one renderer so
+// the two views can never visually drift apart.
+
+// Parsing "YYYY-MM-DDT00:00:00" (no zone) makes Date treat it as local
+// midnight; converting that back with toISOString() reads it out in UTC,
+// which silently shifts every date back a day for anyone east of UTC —
+// India included. Do the whole round trip in UTC so it's timezone-invariant.
+function expandDateRange(startDate, endDate) {
+  const [sy, sm, sd] = startDate.split("-").map(Number);
+  const [ey, em, ed] = endDate.split("-").map(Number);
+  const out = [];
+  const d = new Date(Date.UTC(sy, sm - 1, sd));
+  const end = new Date(Date.UTC(ey, em - 1, ed));
+  while (d <= end) {
+    out.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+}
+
+// Local calendar date as YYYY-MM-DD — deliberately not toISOString(), which
+// would report UTC's date and briefly disagree with "today" every night in
+// any UTC+ timezone.
+function localISODate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function monthMatrix(year, month) {
+  const first = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = new Array(first.getDay()).fill(null);
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push(`${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+function calendarHTML({ year, month, booked, blocked, today, selStart, selEnd }) {
+  const monthName = new Date(year, month, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  const dow = ["S", "M", "T", "W", "T", "F", "S"];
+  const cells = monthMatrix(year, month);
+  let html = `
+    <div class="cal-head">
+      <button type="button" class="cal-nav" data-nav="-1" aria-label="Previous month">‹</button>
+      <span class="cal-title">${monthName}</span>
+      <button type="button" class="cal-nav" data-nav="1" aria-label="Next month">›</button>
+    </div>
+    <div class="cal-grid cal-dow">${dow.map((d) => `<span>${d}</span>`).join("")}</div>
+    <div class="cal-grid">`;
+  cells.forEach((d) => {
+    if (!d) { html += `<span class="cal-cell cal-empty"></span>`; return; }
+    const classes = ["cal-cell"];
+    if (d < today) classes.push("cal-past");
+    else if (booked.has(d)) classes.push("cal-booked");
+    else if (blocked.has(d)) classes.push("cal-blocked");
+    else classes.push("cal-open");
+    if (selStart && d === selStart) classes.push("cal-sel-edge");
+    if (selEnd && d === selEnd) classes.push("cal-sel-edge");
+    if (selStart && selEnd && d > selStart && d < selEnd) classes.push("cal-sel-range");
+    html += `<button type="button" class="${classes.join(" ")}" data-date="${d}">${Number(d.slice(8))}</button>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+// mode 'pick': onChange({selStart, selEnd}) as the advertiser clicks two days.
+// mode 'manage': onChange({date, wasBlocked}) as the owner clicks a day to toggle it.
+function mountCalendar(container, { booked = new Set(), blocked = new Set(), mode = "pick", onChange } = {}) {
+  const now = new Date();
+  let year = now.getFullYear();
+  let month = now.getMonth();
+  const today = localISODate(now);
+  let selStart = null;
+  let selEnd = null;
+
+  function draw() {
+    container.innerHTML = calendarHTML({ year, month, booked, blocked, today, selStart, selEnd });
+    container.querySelector('[data-nav="-1"]').addEventListener("click", () => {
+      month--; if (month < 0) { month = 11; year--; } draw();
+    });
+    container.querySelector('[data-nav="1"]').addEventListener("click", () => {
+      month++; if (month > 11) { month = 0; year++; } draw();
+    });
+    container.querySelectorAll(".cal-cell[data-date]").forEach((cell) => {
+      cell.addEventListener("click", () => {
+        const d = cell.dataset.date;
+        if (cell.classList.contains("cal-past") || cell.classList.contains("cal-booked")) return;
+        if (mode === "pick") {
+          if (cell.classList.contains("cal-blocked")) return;
+          if (!selStart || selEnd) { selStart = d; selEnd = null; }
+          else if (d < selStart) { selStart = d; }
+          else { selEnd = d; }
+          draw();
+          onChange && onChange({ selStart, selEnd });
+        } else {
+          const wasBlocked = blocked.has(d);
+          onChange && onChange({ date: d, wasBlocked });
+        }
+      });
+    });
+  }
+  draw();
+  return {
+    setUnavailable(nextBooked, nextBlocked) { booked = nextBooked; blocked = nextBlocked; draw(); },
+    clearSelection() { selStart = null; selEnd = null; draw(); },
+  };
+}
+
+// ---------- proof-of-play photo capture ----------
+// Downscales a phone photo client-side before it ever reaches the server —
+// keeps the SQLite row small and the upload fast on a weak connection.
+function fileToCompressedDataUrl(file, maxDim = 1400, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read that file."));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("That doesn't look like an image."));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) { height = Math.round((height * maxDim) / width); width = maxDim; }
+          else { width = Math.round((width * maxDim) / height); height = maxDim; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },

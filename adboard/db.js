@@ -100,6 +100,28 @@ db.exec(`
     status       TEXT NOT NULL DEFAULT 'open',
     created_at   TEXT NOT NULL
   );
+
+  -- One row per single day an owner has manually taken off the calendar
+  -- (maintenance, an offline deal, etc.) — separate from real bookings so
+  -- owners can toggle it with one click without going through the booking flow.
+  CREATE TABLE IF NOT EXISTS blocked_dates (
+    id         TEXT PRIMARY KEY,
+    listing_id TEXT NOT NULL REFERENCES listings(id),
+    date       TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(listing_id, date)
+  );
+
+  -- Proof-of-play: mounting / monitoring photos an owner uploads against an
+  -- approved booking so the advertiser can see the creative actually went up.
+  CREATE TABLE IF NOT EXISTS booking_photos (
+    id         TEXT PRIMARY KEY,
+    booking_id TEXT NOT NULL REFERENCES bookings(id),
+    kind       TEXT NOT NULL DEFAULT 'mount',
+    image_data TEXT NOT NULL,
+    caption    TEXT,
+    created_at TEXT NOT NULL
+  );
 `);
 
 // ---------- migrations ----------
