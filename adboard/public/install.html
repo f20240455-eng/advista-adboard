@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Get the BookMyBoard app</title>
+  <meta name="description" content="Add BookMyBoard to your home screen — browse and book billboard space across India in one tap." />
+  <meta name="theme-color" content="#0b6e5c" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="BookMyBoard" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
+  <!-- Link preview when the URL is shared on WhatsApp / iMessage / social -->
+  <meta property="og:title" content="Get the BookMyBoard app" />
+  <meta property="og:description" content="Book billboard space across India, straight from the owner. Add it to your home screen in one tap." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="/icons/icon-512.png" />
+  <meta name="twitter:card" content="summary" />
+
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="install-wrap">
+    <div class="panel install-card">
+      <img src="/icons/icon-192.png" alt="" class="install-icon" width="76" height="76" />
+      <a href="/" class="brand install-brand">Book<span class="accent-word">MyBoard</span></a>
+      <h1>Add BookMyBoard<br />to your home screen</h1>
+      <p class="sub">
+        Opens like an app — full screen, no address bar, one tap from your home screen.
+        Nothing to download from a store.
+      </p>
+
+      <!-- Filled in by the script once we know what this device supports -->
+      <div id="action"></div>
+
+      <ul class="install-perks">
+        <li>Browse verified billboard space across India</li>
+        <li>See real pricing and live availability</li>
+        <li>Book directly from the owner — no brokers</li>
+      </ul>
+
+      <div class="install-share">
+        <button type="button" class="btn btn-outline btn-block btn-small" id="share-btn">Share this link</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/shared.js"></script>
+  <script>
+    const action = document.getElementById("action");
+
+    function installedState() {
+      action.innerHTML = `
+        <div class="install-done">You're all set — BookMyBoard is installed.</div>
+        <a class="btn btn-primary btn-block" href="/">Open BookMyBoard</a>`;
+    }
+
+    function promptState() {
+      action.innerHTML = `<button class="btn btn-primary btn-block" id="do-install">Install app</button>`;
+      document.getElementById("do-install").addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        const { outcome } = await promptInstall();
+        if (outcome === "accepted") {
+          installedState();
+        } else {
+          btn.disabled = false;
+          if (outcome === "unavailable") manualState();
+        }
+      });
+    }
+
+    // iOS gives no install API — these are the real manual steps in Safari.
+    function iosState() {
+      action.innerHTML = `
+        <ol class="install-steps">
+          <li>
+            <span class="n">1</span>
+            <span class="txt">Tap the <strong class="nowrap">Share<svg viewBox="0 0 24 24" class="ios-share" aria-hidden="true"><path d="M12 3l4 4h-3v9h-2V7H8l4-4z" fill="currentColor"/><path d="M5 11v9h14v-9h-2v7H7v-7H5z" fill="currentColor"/></svg></strong> button in Safari's toolbar</span>
+          </li>
+          <li>
+            <span class="n">2</span>
+            <span class="txt">Scroll down and tap <strong>Add to Home Screen</strong></span>
+          </li>
+          <li>
+            <span class="n">3</span>
+            <span class="txt">Tap <strong>Add</strong> — done</span>
+          </li>
+        </ol>
+        <a class="btn btn-primary btn-block" href="/">Continue to the site</a>`;
+    }
+
+    // Fallback: a browser that supports installing but hasn't offered it yet,
+    // or one we can't detect. Point at the browser menu rather than guess.
+    function manualState() {
+      action.innerHTML = `
+        <div class="install-hint">
+          Open your browser menu (<strong>⋮</strong> or <strong>⋯</strong>) and choose
+          <strong>Install app</strong> or <strong>Add to Home screen</strong>.
+        </div>
+        <a class="btn btn-primary btn-block" href="/">Continue to the site</a>`;
+    }
+
+    function render() {
+      if (isStandalone()) return installedState();
+      if (canPromptInstall()) return promptState();
+      if (isIOS()) return iosState();
+      return manualState();
+    }
+
+    // The install prompt often arrives a moment after load; upgrade the UI when it does.
+    document.addEventListener("bmb:installable", () => { if (!isStandalone()) promptState(); });
+    document.addEventListener("bmb:installed", installedState);
+
+    document.getElementById("share-btn").addEventListener("click", async () => {
+      const url = location.origin + "/install.html";
+      const data = {
+        title: "BookMyBoard",
+        text: "Book billboard space across India, straight from the owner.",
+        url,
+      };
+      try {
+        if (navigator.share) {
+          await navigator.share(data);
+        } else {
+          await navigator.clipboard.writeText(url);
+          showToast("Link copied to clipboard");
+        }
+      } catch {
+        /* user dismissed the share sheet */
+      }
+    });
+
+    render();
+  </script>
+</body>
+</html>

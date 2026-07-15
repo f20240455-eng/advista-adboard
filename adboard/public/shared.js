@@ -65,6 +65,62 @@ async function getConfig() {
   return _config;
 }
 
+// ---------- install / PWA ----------
+// Chrome-family browsers fire beforeinstallprompt when the app qualifies for
+// installation. We stash the event so our own button can trigger the native
+// prompt later. iOS Safari has no equivalent API — there we can only show the
+// manual "Share -> Add to Home Screen" steps.
+let _installPrompt = null;
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  _installPrompt = e;
+  document.dispatchEvent(new CustomEvent("bmb:installable"));
+});
+
+window.addEventListener("appinstalled", () => {
+  _installPrompt = null;
+  document.dispatchEvent(new CustomEvent("bmb:installed"));
+});
+
+// True once the app is launched from the home screen rather than a browser tab.
+function isStandalone() {
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true
+  );
+}
+
+function isIOS() {
+  const ua = navigator.userAgent;
+  return (
+    /iPhone|iPad|iPod/i.test(ua) ||
+    // iPadOS 13+ identifies as a Mac; touch points give it away.
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+function canPromptInstall() {
+  return Boolean(_installPrompt);
+}
+
+async function promptInstall() {
+  if (!_installPrompt) return { outcome: "unavailable" };
+  _installPrompt.prompt();
+  const choice = await _installPrompt.userChoice;
+  _installPrompt = null; // the event can only be used once
+  return choice;
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/sw.js")
+      .catch((e) => console.warn("Service worker registration failed:", e));
+  });
+}
+
 function showToast(message, type = "success") {
   document.querySelectorAll(".toast").forEach((t) => t.remove());
   const toast = document.createElement("div");
@@ -89,15 +145,36 @@ function renderNav(user, activePage) {
   nav.innerHTML = `
     <div class="nav-inner">
       <a href="/" class="brand">Book<span class="accent-word">MyBoard</span></a>
-      <div class="nav-links">${links.join("")}</div>
+      <div class="nav-links">
+        <button type="button" class="btn btn-outline btn-small nav-install" id="nav-install" hidden>Install app</button>
+        ${links.join("")}
+      </div>
     </div>`;
   document.body.prepend(nav);
+
   const logout = document.getElementById("logout-link");
   if (logout) {
     logout.addEventListener("click", async (e) => {
       e.preventDefault();
       await api("/api/logout", { method: "POST" });
       window.location.href = "/";
+    });
+  }
+
+  mountInstallBanner();
+
+  // Offer the install button only where it can actually do something: a browser
+  // that has told us the app is installable, and not already installed.
+  const installBtn = document.getElementById("nav-install");
+  if (installBtn && !isStandalone()) {
+    const reveal = () => { installBtn.hidden = false; };
+    if (canPromptInstall()) reveal();
+    document.addEventListener("bmb:installable", reveal);
+    document.addEventListener("bmb:installed", () => { installBtn.hidden = true; });
+    installBtn.addEventListener("click", async () => {
+      const { outcome } = await promptInstall();
+      if (outcome === "accepted") showToast("Installing BookMyBoard…");
+      installBtn.hidden = true;
     });
   }
 }
@@ -124,6 +201,7 @@ function renderFooter() {
         <div class="footer-col">
           <h4>Get in touch</h4>
           <ul>
+            <li><a href="/install.html">Get the app</a></li>
             <li><a href="mailto:hello@bookmyboard.in">hello@bookmyboard.in</a></li>
             <li>Mon–Sat, 10am–7pm</li>
           </ul>
@@ -154,6 +232,50 @@ function listingCardHTML(l) {
       </div>
     </a>`;
 }
+
+// The nav button is desktop-only (the mobile nav has no room for it), so phones
+// get a dismissible banner instead — which is also where installing matters most.
+function mountInstallBanner() {
+  if (isStandalone()) return;
+  if (localStorage.getItem("bmb-install-dismissed") === "1") return;
+
+  const show = () => {
+    if (document.getElementById("install-banner")) return;
+    const bar = document.createElement("div");
+    bar.id = "install-banner";
+    bar.className = "install-banner";
+    bar.innerHTML = `
+      <img src="/icons/icon-192.png" alt="" width="38" height="38" />
+      <div class="ib-text">
+        <strong>Add to home screen</strong>
+        <span>Open BookMyBoard like an app</span>
+      </div>
+      <button type="button" class="btn btn-primary btn-small" id="ib-install">Install</button>
+      <button type="button" class="ib-close" id="ib-close" aria-label="Dismiss">&times;</button>`;
+    document.body.appendChild(bar);
+
+    document.getElementById("ib-install").addEventListener("click", async () => {
+      const { outcome } = await promptInstall();
+      bar.remove();
+      if (outcome === "unavailable") window.location.href = "/install.html";
+    });
+    document.getElementById("ib-close").addEventListener("click", () => {
+      localStorage.setItem("bmb-install-dismissed", "1"); // don't nag again
+      bar.remove();
+    });
+  };
+
+  if (canPromptInstall()) show();
+  document.addEventListener("bmb:installable", show);
+  document.addEventListener("bmb:installed", () => {
+    const b = document.getElementById("install-banner");
+    if (b) b.remove();
+  });
+}
+
+// Every page that loads this file gets the service worker, which is what makes
+// the app installable and gives it an offline fallback.
+registerServiceWorker();
 
 function vendorCardHTML(v) {
   return `

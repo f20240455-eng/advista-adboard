@@ -1,0 +1,33 @@
+{
+  "name": "BookMyBoard — Book Billboard Space",
+  "short_name": "BookMyBoard",
+  "description": "Book verified billboard, unipole and digital LED space across India, directly from the owners.",
+  "start_url": "/?src=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#faf6ee",
+  "theme_color": "#0b6e5c",
+  "orientation": "portrait-primary",
+  "categories": ["business", "shopping", "productivity"],
+  "lang": "en-IN",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Browse spaces",
+      "short_name": "Browse",
+      "url": "/listings.html",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "My dashboard",
+      "short_name": "Dashboard",
+      "url": "/dashboard.html",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
