@@ -97,6 +97,7 @@ nav {
 .nav-links a:hover { color: var(--ink); background: var(--bg-soft); text-decoration: none; }
 .nav-links a.active { color: var(--brand); }
 .nav-links a.hide-sm { display: none; }
+.nav-links a.btn-primary, .nav-links a.btn-primary:hover { color: #fff; }
 .nav-links .btn-small { padding: 8px 11px; margin-left: 2px; }
 @media (min-width: 400px) {
   .nav-inner { padding: 14px 16px; gap: 8px; }
