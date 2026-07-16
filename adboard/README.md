@@ -46,6 +46,7 @@ Railway dashboard (or a local shell) — never commit them.
 | `RESEND_API_KEY`, `MAIL_FROM` | Password-reset emails | resend.com API key + a verified sender |
 | `PLATFORM_COMMISSION_PCT` | Platform fee %, default `10` | your call |
 | `APP_URL` | Absolute links in emails / OAuth redirects | e.g. `https://yourdomain.com` |
+| `ADMIN_TOKEN` | `/api/admin/insights` (marketplace analytics) | any long random string you choose. Without it the route returns 404. |
 
 Without `RESEND_API_KEY`, password-reset links are printed to the server log
 instead of emailed, so the flow stays testable in development.
@@ -68,6 +69,34 @@ instead of emailed, so the flow stays testable in development.
 - **Auth** — scrypt-hashed passwords, HttpOnly session cookies (30-day),
   role-based API authorization, Google sign-in, and password reset with
   single-use, one-hour tokens that invalidate existing sessions.
+
+## Event log (pricing groundwork)
+
+Every meaningful marketplace action is recorded in the `events` table: searches
+(including zero-result ones), listing views, booking requests, owner decisions,
+payments, and turned-away demand. This is deliberate groundwork — a pricing or
+demand model can only ever be trained on history that was captured as it
+happened, and none of it is recoverable retroactively.
+
+Three design rules, all load-bearing:
+
+- **Prices are snapshotted, never joined.** `events.price_snapshot` is copied in
+  at event time, so an owner editing their price later cannot silently rewrite
+  past observations.
+- **Logging can never break the product.** `analytics.track()` swallows its own
+  errors; a failure drops one event and nothing else.
+- **No personal or cross-site data.** No IP addresses, no user agents, no
+  third-party ids. `visitor_id` is a first-party random id (90-day cookie) used
+  only to group one person's own activity on this site.
+
+Read the aggregates with `ADMIN_TOKEN` set:
+
+```sh
+curl "$APP_URL/api/admin/insights?days=30&token=$ADMIN_TOKEN"
+```
+
+`zeroResultSearches` is the most immediately useful output: it maps demand the
+marketplace currently cannot supply, i.e. which owners to recruit in which city.
 
 ## Stack
 

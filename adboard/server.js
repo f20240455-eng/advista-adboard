@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const path = require("path");
 const { db, hashPassword, listingToApi } = require("./db");
 const X = require("./integrations");
+const { track } = require("./analytics");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -278,6 +279,30 @@ app.get("/api/listings", (req, res) => {
 
   const all = db.prepare("SELECT DISTINCT city FROM listings ORDER BY city").all().map((r) => r.city);
   const types = db.prepare("SELECT DISTINCT type FROM listings ORDER BY type").all().map((r) => r.type);
+
+  // Searches that return nothing are the most valuable rows in this table:
+  // they map demand we cannot currently supply, and tell us which owners to go
+  // recruit in which city. Only log searches with actual intent (a filter or a
+  // query), not the bare "browse everything" page load.
+  const hasIntent = Boolean(
+    (city && city !== "all") || (type && type !== "all") || maxPrice || q
+  );
+  if (hasIntent) {
+    track("search", {
+      req,
+      res,
+      user: currentUser(req),
+      props: {
+        city: city || null,
+        type: type || null,
+        maxPrice: maxPrice ? Number(maxPrice) : null,
+        hasQuery: Boolean(q),
+        resultCount: rows.length,
+        zeroResults: rows.length === 0,
+      },
+    });
+  }
+
   res.json({ listings: rows.map(listingToApi), cities: all, types });
 });
 
@@ -292,6 +317,24 @@ app.get("/api/listings/:id", (req, res) => {
     .prepare("SELECT date FROM blocked_dates WHERE listing_id = ? ORDER BY date")
     .all(row.id)
     .map((r) => r.date);
+
+  // The denominator for conversion: how many people saw this listing at this
+  // price versus how many went on to request it.
+  track("listing_view", {
+    req,
+    res,
+    user: currentUser(req),
+    listingId: row.id,
+    price: row.price_per_month,
+    props: {
+      city: row.city,
+      type: row.type,
+      trafficPerDay: row.traffic_per_day,
+      lit: Boolean(row.lit),
+      isBooked: bookedRanges.length > 0,
+    },
+  });
+
   res.json({
     listing: listingToApi(row),
     ownerName: owner ? owner.name : "Unknown",
@@ -366,6 +409,22 @@ app.post("/api/listings", requireAuth("owner"), (req, res) => {
      VALUES (@id, @owner_id, @title, @city, @location, @type, @size, @facing,
         @traffic_per_day, @price_per_month, @lit, @description, @theme, @created_at)`
   ).run(listing);
+
+  // What owners believe their space is worth, at the moment they list it and
+  // before any market feedback. This is the baseline the pricing guide will be
+  // measured against.
+  track("listing_created", {
+    req, res, user: req.user,
+    listingId: listing.id,
+    price: listing.price_per_month,
+    props: {
+      city: listing.city,
+      type: listing.type,
+      trafficPerDay: listing.traffic_per_day,
+      lit: Boolean(listing.lit),
+      size: listing.size,
+    },
+  });
   res.status(201).json({ listing: listingToApi(listing) });
 });
 
@@ -388,14 +447,28 @@ app.post("/api/bookings", requireAuth("client"), (req, res) => {
   const approved = db
     .prepare("SELECT start_date, end_date FROM bookings WHERE listing_id = ? AND status = 'approved'")
     .all(listingId);
-  if (approved.some((b) => overlaps(startDate, endDate, b.start_date, b.end_date)))
+  if (approved.some((b) => overlaps(startDate, endDate, b.start_date, b.end_date))) {
+    // Demand we turned away. Repeated collisions on one listing are a strong
+    // signal it is underpriced for that window.
+    track("booking_blocked", {
+      req, res, user: req.user, listingId,
+      price: listing.price_per_month,
+      props: { reason: "already_booked", startDate, endDate },
+    });
     return res.status(409).json({ error: "That space is already booked for part of those dates." });
+  }
 
   const blockedInRange = db
     .prepare("SELECT 1 FROM blocked_dates WHERE listing_id = ? AND date BETWEEN ? AND ? LIMIT 1")
     .get(listingId, startDate, endDate);
-  if (blockedInRange)
+  if (blockedInRange) {
+    track("booking_blocked", {
+      req, res, user: req.user, listingId,
+      price: listing.price_per_month,
+      props: { reason: "owner_blocked", startDate, endDate },
+    });
     return res.status(409).json({ error: "The owner has marked part of those dates unavailable." });
+  }
 
   // Lock the quote at request time from the price the advertiser actually saw,
   // so it cannot move between request and approval.
@@ -423,6 +496,24 @@ app.post("/api/bookings", requireAuth("client"), (req, res) => {
      VALUES (@id, @listing_id, @client_id, @start_date, @end_date, @message, @status,
              @amount_total, @platform_fee, @owner_payout, @payment_status, @created_at)`
   ).run(booking);
+
+  track("booking_requested", {
+    req, res, user: req.user,
+    listingId,
+    bookingId: booking.id,
+    price: listing.price_per_month,
+    props: {
+      days,
+      quotedTotal: rupees,
+      city: listing.city,
+      type: listing.type,
+      trafficPerDay: listing.traffic_per_day,
+      // Lead time is a core seasonality feature: how far ahead people book.
+      leadTimeDays: daysBetween(new Date().toISOString().slice(0, 10), startDate) - 1,
+      startDate,
+      hasMessage: Boolean(booking.message),
+    },
+  });
   res.status(201).json({ booking });
 });
 
@@ -475,6 +566,20 @@ app.post("/api/bookings/:id/pay/verify", requireAuth("client"), (req, res) => {
     String(paymentId),
     booking.id
   );
+
+  // Ground truth: money actually changed hands at this price.
+  track("booking_paid", {
+    req, res, user: req.user,
+    listingId: booking.listing_id,
+    bookingId: booking.id,
+    price: (booking.amount_total || 0) / 100,
+    props: {
+      amountTotal: (booking.amount_total || 0) / 100,
+      platformFee: (booking.platform_fee || 0) / 100,
+      startDate: booking.start_date,
+      endDate: booking.end_date,
+    },
+  });
   res.json({ ok: true });
 });
 
@@ -608,6 +713,24 @@ app.post("/api/bookings/:id/decision", requireAuth("owner"), (req, res) => {
       return res.status(409).json({ error: "Dates clash with an already-approved booking." });
   }
   db.prepare("UPDATE bookings SET status = ? WHERE id = ?").run(status, booking.id);
+
+  // The supply-side label: did the owner accept this price for these dates?
+  const listingRow = db.prepare("SELECT * FROM listings WHERE id = ?").get(booking.listing_id);
+  track("booking_decided", {
+    req, res, user: req.user,
+    listingId: booking.listing_id,
+    bookingId: booking.id,
+    price: listingRow ? listingRow.price_per_month : null,
+    props: {
+      decision: status,
+      quotedTotal: (booking.amount_total || 0) / 100,
+      // How long the advertiser waited — our own service-quality metric.
+      ownerResponseHours:
+        Math.round(((Date.now() - new Date(booking.created_at)) / 3600000) * 10) / 10,
+      startDate: booking.start_date,
+      endDate: booking.end_date,
+    },
+  });
   res.json({ booking: { ...booking, status } });
 });
 
@@ -758,6 +881,98 @@ app.get("/api/service-requests", requireAuth(), (req, res) => {
       status: r.status,
       createdAt: r.created_at,
     })),
+  });
+});
+
+// ---------- insights (private) ----------
+// Aggregates over the event log. Gated by ADMIN_TOKEN: this is commercial
+// intelligence, not public data. With no token configured the route does not
+// exist at all, so an unconfigured deploy can't leak it.
+
+function requireAdmin(req, res, next) {
+  const expected = process.env.ADMIN_TOKEN;
+  if (!expected) return res.status(404).json({ error: "Not found." });
+  const given = req.get("x-admin-token") || req.query.token || "";
+  const a = Buffer.from(String(given));
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b))
+    return res.status(401).json({ error: "Unauthorized." });
+  next();
+}
+
+app.get("/api/admin/insights", requireAdmin, (req, res) => {
+  const days = Math.min(Number(req.query.days) || 30, 365);
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+
+  const q = (sql, ...p) => db.prepare(sql).all(...p);
+
+  const eventCounts = q(
+    `SELECT name, COUNT(*) AS n FROM events WHERE created_at >= ? GROUP BY name ORDER BY n DESC`,
+    since
+  );
+
+  // The supply-gap map: what people looked for and we had nothing for.
+  const zeroResultSearches = q(
+    `SELECT json_extract(props,'$.city') AS city,
+            json_extract(props,'$.type') AS type,
+            COUNT(*) AS n
+       FROM events
+      WHERE name = 'search' AND created_at >= ?
+        AND json_extract(props,'$.zeroResults') = 1
+      GROUP BY city, type
+      ORDER BY n DESC
+      LIMIT 20`,
+    since
+  );
+
+  const funnel = {};
+  for (const name of ["listing_view", "booking_requested", "booking_decided", "booking_paid"]) {
+    funnel[name] = (eventCounts.find((e) => e.name === name) || { n: 0 }).n;
+  }
+
+  // Every completed observation the future model would train on.
+  const priceObservations = q(
+    `SELECT COUNT(*) AS n FROM events WHERE name IN ('booking_requested','booking_paid')`
+  )[0].n;
+
+  const topListings = q(
+    `SELECT listing_id,
+            SUM(name = 'listing_view') AS views,
+            SUM(name = 'booking_requested') AS requests
+       FROM events
+      WHERE listing_id IS NOT NULL AND created_at >= ?
+      GROUP BY listing_id
+      ORDER BY views DESC
+      LIMIT 10`,
+    since
+  );
+
+  const decisions = q(
+    `SELECT json_extract(props,'$.decision') AS decision,
+            COUNT(*) AS n,
+            ROUND(AVG(json_extract(props,'$.ownerResponseHours')), 1) AS avgResponseHours
+       FROM events
+      WHERE name = 'booking_decided' AND created_at >= ?
+      GROUP BY decision`,
+    since
+  );
+
+  res.json({
+    windowDays: days,
+    generatedAt: new Date().toISOString(),
+    eventCounts,
+    funnel,
+    priceObservations,
+    modelReadiness: {
+      observations: priceObservations,
+      // Not a real threshold yet — a deliberate reminder that a heuristic
+      // beats a model until there is genuine volume behind it.
+      roughTargetForModelling: 300,
+      ready: priceObservations >= 300,
+    },
+    zeroResultSearches,
+    decisions,
+    topListings,
   });
 });
 

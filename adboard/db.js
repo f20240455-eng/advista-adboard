@@ -122,6 +122,36 @@ db.exec(`
     caption    TEXT,
     created_at TEXT NOT NULL
   );
+
+  -- Marketplace event log. This is the training set for future pricing and
+  -- demand models, so the rules are deliberate:
+  --
+  --  * price_snapshot is the price AT THE MOMENT OF THE EVENT, copied in, not
+  --    joined. An owner editing their price later must never silently rewrite
+  --    history — that would corrupt every past observation.
+  --  * No IP addresses and no cross-site identifiers. visitor_id is a rotating
+  --    first-party id used only to group one person's session on this site.
+  --  * NO foreign keys on purpose: analytics must never block or fail a
+  --    product write, and events outlive the rows they reference (a deleted
+  --    listing's history is still valid training data).
+  CREATE TABLE IF NOT EXISTS events (
+    id             TEXT PRIMARY KEY,
+    name           TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    visitor_id     TEXT,
+    user_id        TEXT,
+    user_role      TEXT,
+    listing_id     TEXT,
+    booking_id     TEXT,
+    -- rupees, integer, frozen at event time
+    price_snapshot INTEGER,
+    -- JSON blob for event-specific fields (filters used, days, outcome, …)
+    props          TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_events_name_time ON events(name, created_at);
+  CREATE INDEX IF NOT EXISTS idx_events_listing ON events(listing_id);
+  CREATE INDEX IF NOT EXISTS idx_events_visitor ON events(visitor_id);
 `);
 
 // ---------- migrations ----------
