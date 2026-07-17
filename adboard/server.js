@@ -4,6 +4,7 @@ const path = require("path");
 const { db, hashPassword, listingToApi } = require("./db");
 const X = require("./integrations");
 const { track } = require("./analytics");
+const { estimatePrice } = require("./pricing");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -373,6 +374,35 @@ app.delete("/api/listings/:id/blocks/:date", requireAuth("owner"), (req, res) =>
     return res.status(403).json({ error: "This isn't your listing." });
   db.prepare("DELETE FROM blocked_dates WHERE listing_id = ? AND date = ?").run(req.params.id, req.params.date);
   res.json({ ok: true });
+});
+
+// ---------- price guide ----------
+// Public and unauthenticated: an owner sketching a new listing hasn't
+// necessarily filled in every field yet, and an advertiser auditing a
+// published price shouldn't need to log in to see the arithmetic. No PII
+// involved either way.
+app.get("/api/price-estimate", (req, res) => {
+  const { city, type, trafficPerDay, lit, listingId } = req.query;
+  const result = estimatePrice({
+    city,
+    type,
+    trafficPerDay: Number(trafficPerDay) || 0,
+    lit: lit === "true" || lit === "1",
+  });
+
+  // Logged only when checked against a real listing (not every keystroke on
+  // the add-space form) — this is what lets us later compare "what we
+  // suggested" against "what actually got booked and paid for" per listing.
+  if (listingId) {
+    track("price_suggested", {
+      req, res, user: currentUser(req),
+      listingId: String(listingId),
+      price: result.mid,
+      props: { low: result.low, high: result.high, tier: result.tier },
+    });
+  }
+
+  res.json(result);
 });
 
 app.post("/api/listings", requireAuth("owner"), (req, res) => {

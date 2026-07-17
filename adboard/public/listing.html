@@ -24,6 +24,10 @@
         <div class="spec-grid" id="specs"></div>
         <h3 style="margin-bottom: 8px;">About this space</h3>
         <p id="desc" style="color: var(--muted);"></p>
+        <div class="price-guide" id="price-guide" style="display:none; margin-top:20px;">
+          <div class="price-guide-range" id="pg-compare"></div>
+          <details><summary>See the math</summary><ol id="pg-steps"></ol></details>
+        </div>
       </div>
 
       <div>
@@ -83,6 +87,30 @@
         spec("Lighting", l.lit ? "Backlit" : "Non-lit"),
         spec("City", esc(l.city)),
       ].join("");
+
+      // Transparent price check: the same public arithmetic an owner sees
+      // when listing, run against this listing's own attributes, so an
+      // advertiser can audit the asking price instead of taking it on faith.
+      try {
+        const r = await fetchPriceEstimate({
+          city: l.city, type: l.type, trafficPerDay: l.trafficPerDay, lit: l.lit, listingId: l.id,
+        });
+        const compareEl = document.getElementById("pg-compare");
+        const asking = l.pricePerMonth;
+        if (asking < r.low) {
+          const under = Math.round((1 - asking / r.mid) * 100);
+          compareEl.innerHTML = `Priced <strong>${under}% below</strong> our typical range for comparable sites (${formatINR(r.low)}–${formatINR(r.high)}).`;
+        } else if (asking > r.high) {
+          const over = Math.round((asking / r.mid - 1) * 100);
+          compareEl.innerHTML = `Priced <strong>${over}% above</strong> our typical range for comparable sites (${formatINR(r.low)}–${formatINR(r.high)}).`;
+        } else {
+          compareEl.innerHTML = `Priced <strong>within</strong> our typical range for comparable sites (${formatINR(r.low)}–${formatINR(r.high)}).`;
+        }
+        document.getElementById("pg-steps").innerHTML = priceGuideStepsHTML(r.steps);
+        document.getElementById("price-guide").style.display = "block";
+      } catch {
+        // Silent: the price guide is a nice-to-have, never the booking flow.
+      }
 
       const area = document.getElementById("booking-area");
       if (!user) {

@@ -70,6 +70,28 @@ instead of emailed, so the flow stays testable in development.
   role-based API authorization, Google sign-in, and password reset with
   single-use, one-hour tokens that invalidate existing sessions.
 
+## Price guide (not AI, on purpose)
+
+`GET /api/price-estimate?city=&type=&trafficPerDay=&lit=` returns a suggested
+price range plus the exact arithmetic used to reach it — see `pricing.js`.
+This is a plain rules engine, not a model, and that is deliberate: the
+product's whole thesis is fixing opaque OOH pricing, so a black-box "AI
+price" would contradict the promise being made. Every constant is a comment
+in that file; every step is returned to the client and rendered as a visible
+"see the math" breakdown, both on the owner's Add a space form (a live
+suggestion, informing but never overwriting the price field) and on the
+public listing page (an audit of the actual asking price — including telling
+an owner their own listing is priced above range).
+
+Band constants are grounded in published rate cards, then checked against
+one real data point (a Balangir hoarding, 48K traffic/day, actually listed at
+₹55,000 — the untrimmed "other city" band overshot that by ~50% before the
+band ceiling was pulled down). As real bookings accumulate, recalibrate these
+constants against what actually got booked and paid for — that's what the
+event log's `price_snapshot` field exists to make possible. Checking a price
+against a real listing (not every keystroke) logs a `price_suggested` event
+for exactly that future comparison.
+
 ## Event log (pricing groundwork)
 
 Every meaningful marketplace action is recorded in the `events` table: searches

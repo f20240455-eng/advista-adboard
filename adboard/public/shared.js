@@ -417,6 +417,30 @@ function mountInstallBanner() {
 // the app installable and gives it an offline fallback.
 registerServiceWorker();
 
+// ---------- price guide ----------
+// Renders the arithmetic from /api/price-estimate as a plain numbered list —
+// no chart, no black box. The whole point is that anyone can read every step.
+function priceGuideStepsHTML(steps) {
+  return steps
+    .map(
+      (s) => `<li><span class="pg-step-label">${esc(s.label)}</span>
+        <span class="pg-step-detail">${esc(s.detail)}</span>
+        <span class="pg-step-running">${formatINR(s.running)}</span></li>`
+    )
+    .join("");
+}
+
+async function fetchPriceEstimate({ city, type, trafficPerDay, lit, listingId }) {
+  const params = new URLSearchParams({
+    city: city || "",
+    type: type || "",
+    trafficPerDay: String(trafficPerDay || 0),
+    lit: lit ? "true" : "false",
+  });
+  if (listingId) params.set("listingId", listingId);
+  return api("/api/price-estimate?" + params.toString());
+}
+
 function vendorCardHTML(v) {
   return `
     <div class="listing-card vendor-card">

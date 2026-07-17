@@ -69,6 +69,10 @@
           <div class="form-group">
             <label><input type="checkbox" id="a-lit" style="width:auto; margin-right: 8px;" />Backlit / illuminated</label>
           </div>
+          <div class="price-guide" id="a-price-guide" style="display:none;">
+            <div class="price-guide-range">Suggested range: <strong id="a-pg-range"></strong></div>
+            <details><summary>See the math</summary><ol id="a-pg-steps"></ol></details>
+          </div>
           <div class="form-group"><label>Description</label>
             <textarea id="a-desc" rows="3" placeholder="What makes this space work?"></textarea></div>
           <button class="btn btn-primary" id="a-submit">Publish listing</button>
@@ -479,6 +483,34 @@
           ["requests", "listings", "add"].forEach((t) => {
             el("tab-" + t).style.display = t === btn.dataset.tab ? "block" : "none";
           });
+        })
+      );
+
+      // Live, transparent price suggestion as the owner fills in the form.
+      // Deliberately does not touch the price field — it informs, it doesn't
+      // decide. See pricing.js for the (non-AI, fully auditable) arithmetic.
+      let pgTimer = null;
+      async function updatePriceGuide() {
+        const trafficPerDay = Number(el("a-traffic").value) || 0;
+        const type = el("a-type").value;
+        const city = el("a-city").value.trim();
+        if (!city || !trafficPerDay) {
+          el("a-price-guide").style.display = "none";
+          return;
+        }
+        try {
+          const r = await fetchPriceEstimate({ city, type, trafficPerDay, lit: el("a-lit").checked });
+          el("a-pg-range").textContent = `${formatINR(r.low)} – ${formatINR(r.high)}/month`;
+          el("a-pg-steps").innerHTML = priceGuideStepsHTML(r.steps);
+          el("a-price-guide").style.display = "block";
+        } catch {
+          el("a-price-guide").style.display = "none";
+        }
+      }
+      ["a-city", "a-type", "a-traffic", "a-lit"].forEach((id) =>
+        el(id).addEventListener("input", () => {
+          clearTimeout(pgTimer);
+          pgTimer = setTimeout(updatePriceGuide, 400);
         })
       );
 
