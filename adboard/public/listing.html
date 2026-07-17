@@ -16,6 +16,7 @@
   <div class="container" id="page" style="padding-top: 32px; display: none;">
     <a href="/listings.html" class="back-link">← All spaces</a>
     <div class="detail-banner" id="banner"></div>
+    <div class="detail-gallery" id="gallery"></div>
     <div class="detail-grid">
       <div>
         <h1 id="title" style="font-size: 1.8rem;"></h1>
@@ -65,13 +66,33 @@
         document.getElementById("notfound").style.display = "block";
         return;
       }
-      const { listing: l, ownerName, bookedRanges, blockedDates } = data;
+      const { listing: l, ownerName, bookedRanges, blockedDates, photos = [] } = data;
       const bookedSet = new Set(bookedRanges.flatMap((r) => expandDateRange(r.startDate, r.endDate)));
       const blockedSet = new Set(blockedDates);
 
       document.title = l.title + " — BookMyBoard";
       const banner = document.getElementById("banner");
-      banner.innerHTML = `<img src="${themePhoto(l.theme, 1000)}" alt="${esc(l.type)} at ${esc(l.location)}" />`;
+      // Real site photos win over the stock theme image. The banner shows the
+      // selected photo; thumbnails below switch it. With no uploaded photos we
+      // fall back to the theme image and show no gallery.
+      const photoUrl = (p) => `/api/listing-photos/${encodeURIComponent(p.id)}`;
+      if (photos.length) {
+        banner.innerHTML = `<img id="banner-img" src="${photoUrl(photos[0])}" alt="${esc(photos[0].caption) || (esc(l.type) + " at " + esc(l.location))}" />`;
+        if (photos.length > 1) {
+          document.getElementById("gallery").innerHTML = photos
+            .map((p, i) => `<button type="button" class="gallery-thumb${i === 0 ? " active" : ""}" data-src="${photoUrl(p)}" data-i="${i}"><img src="${photoUrl(p)}" alt="${esc(p.caption)}" loading="lazy" /></button>`)
+            .join("");
+          document.querySelectorAll(".gallery-thumb").forEach((btn) =>
+            btn.addEventListener("click", () => {
+              document.getElementById("banner-img").src = btn.dataset.src;
+              document.querySelectorAll(".gallery-thumb").forEach((b) => b.classList.remove("active"));
+              btn.classList.add("active");
+            })
+          );
+        }
+      } else {
+        banner.innerHTML = `<img src="${themePhoto(l.theme, 1000)}" alt="${esc(l.type)} at ${esc(l.location)}" />`;
+      }
       const titleEl = document.getElementById("title");
       titleEl.textContent = l.title;
       document.getElementById("loc").textContent = l.location + ", " + l.city;

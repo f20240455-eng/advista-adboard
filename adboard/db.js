@@ -112,6 +112,33 @@ db.exec(`
     UNIQUE(listing_id, date)
   );
 
+  -- One row each time a user accepts a specific version of the legal policies.
+  -- Keeps an auditable trail (who accepted which version, when) and lets a
+  -- policy bump force re-acceptance. No IP is stored — invariant 7. The unique
+  -- pair makes re-recording the same acceptance a harmless no-op.
+  CREATE TABLE IF NOT EXISTS user_consents (
+    id             TEXT PRIMARY KEY,
+    user_id        TEXT NOT NULL REFERENCES users(id),
+    policy_version TEXT NOT NULL,
+    accepted_at    TEXT NOT NULL,
+    UNIQUE(user_id, policy_version)
+  );
+
+  -- Photos of the physical site an owner attaches when listing a space, so
+  -- advertisers can see the actual location before booking. Same base64-in-
+  -- SQLite approach as booking_photos (fine at MVP scale; object storage later).
+  -- The sort column gives the owner control over which one is the cover image.
+  CREATE TABLE IF NOT EXISTS listing_photos (
+    id         TEXT PRIMARY KEY,
+    listing_id TEXT NOT NULL REFERENCES listings(id),
+    image_data TEXT NOT NULL,
+    caption    TEXT,
+    sort       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_listing_photos_listing ON listing_photos(listing_id);
+
   -- Proof-of-play: mounting / monitoring photos an owner uploads against an
   -- approved booking so the advertiser can see the creative actually went up.
   CREATE TABLE IF NOT EXISTS booking_photos (
@@ -164,6 +191,9 @@ function ensureColumn(table, column, definition) {
 }
 
 ensureColumn("users", "google_id", "TEXT");
+// Marks an operator account that can reach the private admin console. Set from
+// ADMIN_EMAILS on login — there is deliberately no public way to become admin.
+ensureColumn("users", "is_admin", "INTEGER NOT NULL DEFAULT 0");
 // Money is stored in paise (integer) to avoid floating-point drift.
 ensureColumn("bookings", "amount_total", "INTEGER");
 ensureColumn("bookings", "platform_fee", "INTEGER");
@@ -171,9 +201,47 @@ ensureColumn("bookings", "owner_payout", "INTEGER");
 ensureColumn("bookings", "payment_status", "TEXT NOT NULL DEFAULT 'unpaid'");
 ensureColumn("bookings", "payment_order_id", "TEXT");
 ensureColumn("bookings", "payment_id", "TEXT");
+// When we've manually transferred the owner's share (total minus commission) to
+// their bank. Owner payouts are off-platform for now; this is the ledger flag.
+ensureColumn("bookings", "paid_out_at", "TEXT");
+// Set when a paid booking is refunded via Razorpay. payment_status then becomes
+// 'refunded' and status 'cancelled', so it drops out of the revenue/payout math.
+ensureColumn("bookings", "refund_id", "TEXT");
+ensureColumn("bookings", "refunded_at", "TEXT");
 
 function hashPassword(pw, salt) {
   return crypto.scryptSync(pw, salt, 64).toString("hex");
+}
+
+// ---------- legal policy versioning ----------
+// Bumping this string is how we "push" updated Terms/Privacy to everyone: every
+// existing user then has no consent row at the new version, so the re-consent
+// gate (shared.js) blocks the app for them until they accept. Use a date so the
+// version is self-describing in the audit trail. Keep it in sync with the
+// "Last updated" line shown on the policy pages.
+const POLICY_VERSION = "2026-07-17";
+
+// A user must accept the current policy version before using the app. A brand
+// new Google user (auto-created at OAuth callback) and every pre-existing user
+// both land here with no matching row, so both get prompted — no separate path.
+function userNeedsConsent(userId) {
+  return !db
+    .prepare("SELECT 1 FROM user_consents WHERE user_id = ? AND policy_version = ?")
+    .get(userId, POLICY_VERSION);
+}
+
+// Idempotent: the UNIQUE(user_id, policy_version) pair means recording the same
+// acceptance twice (e.g. register + a later gate) quietly does nothing.
+function recordConsent(userId) {
+  db.prepare(
+    `INSERT OR IGNORE INTO user_consents (id, user_id, policy_version, accepted_at)
+     VALUES (?, ?, ?, ?)`
+  ).run(
+    "c-" + crypto.randomBytes(8).toString("hex"),
+    userId,
+    POLICY_VERSION,
+    new Date().toISOString()
+  );
 }
 
 // Convert a listings row (snake_case, integer booleans) to the API shape.
@@ -196,4 +264,11 @@ function listingToApi(row) {
   };
 }
 
-module.exports = { db, hashPassword, listingToApi };
+module.exports = {
+  db,
+  hashPassword,
+  listingToApi,
+  POLICY_VERSION,
+  userNeedsConsent,
+  recordConsent,
+};

@@ -75,6 +75,15 @@
           </div>
           <div class="form-group"><label>Description</label>
             <textarea id="a-desc" rows="3" placeholder="What makes this space work?"></textarea></div>
+          <div class="form-group">
+            <label>Photos of the site <span style="color:var(--muted); font-weight:400;">(optional, up to 6)</span></label>
+            <p style="color:var(--muted); font-size:0.82rem; margin:-2px 0 10px;">Show advertisers the real location. Genuine site photos are the single biggest thing that builds trust before a booking.</p>
+            <div class="photo-row" id="a-photo-row">
+              <label class="photo-add-btn" title="Add a site photo">+
+                <input type="file" accept="image/*" id="a-photo-input" multiple hidden />
+              </label>
+            </div>
+          </div>
           <button class="btn btn-primary" id="a-submit">Publish listing</button>
         </div>
       </div>
@@ -144,7 +153,11 @@
         : `${formatINR(b.amountTotal)} total`;
 
       const paidTag =
-        b.paymentStatus === "paid" ? `<span class="badge badge-paid">Paid</span>` : "";
+        b.paymentStatus === "refunded"
+          ? `<span class="badge badge-rejected">Refunded</span>`
+          : b.paymentStatus === "paid"
+          ? `<span class="badge badge-paid">Paid</span>`
+          : "";
 
       // Proof-of-play: once a booking is approved, the owner can attach a
       // mounting photo so the advertiser can see the creative actually went up.
@@ -514,11 +527,43 @@
         })
       );
 
+      // Site photos are picked here and held client-side (already downscaled),
+      // then uploaded right after the listing is created on Publish — so the
+      // whole thing is still a single action for the owner.
+      const MAX_SITE_PHOTOS = 6;
+      const sitePhotos = [];
+      function renderSitePhotos() {
+        const row = el("a-photo-row");
+        row.querySelectorAll(".photo-thumb").forEach((t) => t.remove());
+        const addBtn = row.querySelector(".photo-add-btn");
+        sitePhotos.forEach((dataUrl, i) => {
+          const thumb = document.createElement("span");
+          thumb.className = "photo-thumb";
+          thumb.innerHTML = `<img src="${dataUrl}" alt="" /><button type="button" class="thumb-remove" title="Remove" data-i="${i}">&times;</button>`;
+          row.insertBefore(thumb, addBtn);
+        });
+        addBtn.style.display = sitePhotos.length >= MAX_SITE_PHOTOS ? "none" : "";
+        row.querySelectorAll(".thumb-remove").forEach((b) =>
+          b.addEventListener("click", () => { sitePhotos.splice(Number(b.dataset.i), 1); renderSitePhotos(); })
+        );
+      }
+      el("a-photo-input").addEventListener("change", async (e) => {
+        const files = [...e.target.files];
+        e.target.value = ""; // let the same file be re-picked after a remove
+        for (const file of files) {
+          if (sitePhotos.length >= MAX_SITE_PHOTOS) { showToast(`Up to ${MAX_SITE_PHOTOS} photos.`, "error"); break; }
+          try { sitePhotos.push(await fileToCompressedDataUrl(file)); }
+          catch (err) { showToast(err.message, "error"); }
+        }
+        renderSitePhotos();
+      });
+
       el("a-submit").addEventListener("click", async () => {
-        const err = el("add-err"), ok = el("add-ok");
+        const err = el("add-err"), ok = el("add-ok"), btn = el("a-submit");
         err.style.display = ok.style.display = "none";
+        btn.disabled = true;
         try {
-          await api("/api/listings", {
+          const { listing } = await api("/api/listings", {
             method: "POST",
             body: JSON.stringify({
               title: el("a-title").value,
@@ -533,13 +578,30 @@
               description: el("a-desc").value,
             }),
           });
-          ok.textContent = "Listing published! It's now visible to all advertisers.";
+          // Upload photos to the freshly-created listing. The listing already
+          // exists, so a failed photo doesn't lose the listing — we just warn.
+          let failed = 0;
+          for (const imageDataUrl of sitePhotos) {
+            try {
+              await api(`/api/listings/${listing.id}/photos`, {
+                method: "POST",
+                body: JSON.stringify({ imageDataUrl }),
+              });
+            } catch { failed++; }
+          }
+          ok.textContent = failed
+            ? `Listing published, but ${failed} photo${failed > 1 ? "s" : ""} couldn't be uploaded.`
+            : "Listing published! It's now visible to all advertisers.";
           ok.style.display = "block";
           showToast("Listing published.");
+          sitePhotos.length = 0;
+          renderSitePhotos();
           loadOwnerListings();
         } catch (e) {
           err.textContent = e.message;
           err.style.display = "block";
+        } finally {
+          btn.disabled = false;
         }
       });
     })();

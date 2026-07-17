@@ -1,7 +1,14 @@
 const express = require("express");
 const crypto = require("crypto");
 const path = require("path");
-const { db, hashPassword, listingToApi } = require("./db");
+const {
+  db,
+  hashPassword,
+  listingToApi,
+  POLICY_VERSION,
+  userNeedsConsent,
+  recordConsent,
+} = require("./db");
 const X = require("./integrations");
 const { track } = require("./analytics");
 const { estimatePrice } = require("./pricing");
@@ -10,10 +17,34 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const ROLES = ["client", "owner", "vendor"];
 
+// Operator accounts. Comma-separated emails in ADMIN_EMAILS may reach the
+// private admin console; there is no public way to become one. Read once at
+// boot — changing it takes a redeploy, which is fine for an operator list.
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "")
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
 // ---------- helpers ----------
 
 function publicUser(u) {
   return { id: u.id, name: u.name, email: u.email, role: u.role };
+}
+
+// True for an operator. The env list is authoritative, so an account added to
+// ADMIN_EMAILS becomes admin on its next login even before the column is synced.
+function isAdmin(user) {
+  return Boolean(user) && (user.is_admin === 1 || ADMIN_EMAILS.includes(String(user.email).toLowerCase()));
+}
+
+// Persist the admin flag from the env list. Called on login so the very first
+// operator (who signed up as a normal user) is promoted without a manual DB edit.
+function syncAdminFlag(user) {
+  const shouldBe = ADMIN_EMAILS.includes(String(user.email).toLowerCase()) ? 1 : 0;
+  if ((user.is_admin || 0) !== shouldBe) {
+    db.prepare("UPDATE users SET is_admin = ? WHERE id = ?").run(shouldBe, user.id);
+    user.is_admin = shouldBe;
+  }
 }
 
 function parseCookies(req) {
@@ -86,13 +117,16 @@ app.get("/api/config", (req, res) => {
 // ---------- auth ----------
 
 app.post("/api/register", (req, res) => {
-  const { name, email, password, role } = req.body || {};
+  const { name, email, password, role, acceptedTerms } = req.body || {};
   if (!name || !email || !password || !role)
     return res.status(400).json({ error: "All fields are required." });
   if (!ROLES.includes(role))
     return res.status(400).json({ error: "Please choose whether you're advertising, listing a space, or offering services." });
   if (String(password).length < 6)
     return res.status(400).json({ error: "Password must be at least 6 characters." });
+  // Consent is captured at the moment of account creation, not implied later.
+  if (acceptedTerms !== true)
+    return res.status(400).json({ error: "Please accept the Terms of Service and Privacy Policy to continue." });
   const emailNorm = String(email).trim().toLowerCase();
   const exists = db.prepare("SELECT 1 FROM users WHERE email = ?").get(emailNorm);
   if (exists)
@@ -112,6 +146,7 @@ app.post("/api/register", (req, res) => {
     `INSERT INTO users (id, name, email, role, salt, password_hash, created_at)
      VALUES (@id, @name, @email, @role, @salt, @password_hash, @created_at)`
   ).run(user);
+  recordConsent(user.id);
   startSession(res, user.id);
   res.json({ user: publicUser(user) });
 });
@@ -123,6 +158,7 @@ app.post("/api/login", (req, res) => {
     .get(String(email || "").trim().toLowerCase());
   if (!user || hashPassword(password || "", user.salt) !== user.password_hash)
     return res.status(401).json({ error: "Invalid email or password." });
+  syncAdminFlag(user);
   startSession(res, user.id);
   res.json({ user: publicUser(user) });
 });
@@ -136,7 +172,17 @@ app.post("/api/logout", (req, res) => {
 
 app.get("/api/me", (req, res) => {
   const user = currentUser(req);
-  res.json({ user: user ? publicUser(user) : null });
+  if (!user) return res.json({ user: null });
+  // needsConsent drives the re-consent gate on the front end.
+  res.json({ user: { ...publicUser(user), needsConsent: userNeedsConsent(user.id) } });
+});
+
+// Records that the logged-in user accepted the current policy version. Used by
+// the re-consent gate and by any new user who reached the app without accepting
+// at signup (e.g. via Google sign-in).
+app.post("/api/accept-terms", requireAuth(), (req, res) => {
+  recordConsent(req.user.id);
+  res.json({ ok: true });
 });
 
 // ---------- password reset ----------
@@ -264,6 +310,7 @@ app.get("/auth/google/callback", async (req, res) => {
          VALUES (@id, @name, @email, @role, @salt, @password_hash, @google_id, @created_at)`
       ).run(user);
     }
+    syncAdminFlag(user);
     startSession(res, user.id);
     const next = String(intent.next || "/dashboard.html");
     res.redirect(next.startsWith("/") ? next : "/dashboard.html");
@@ -314,7 +361,23 @@ app.get("/api/listings", (req, res) => {
     });
   }
 
-  res.json({ listings: rows.map(listingToApi), cities: all, types });
+  // Attach a cover photo id + count to each listing so browse cards can show a
+  // real site photo (loaded lazily via /api/listing-photos/:id) and fall back to
+  // the stock theme image when an owner hasn't added one. Kept out of the JSON
+  // body as bytes — just the id — so the list stays small.
+  const cover = {};
+  const counts = {};
+  for (const p of db.prepare("SELECT listing_id, id FROM listing_photos ORDER BY sort, created_at").all()) {
+    if (!(p.listing_id in cover)) cover[p.listing_id] = p.id;
+    counts[p.listing_id] = (counts[p.listing_id] || 0) + 1;
+  }
+  const listings = rows.map((row) => ({
+    ...listingToApi(row),
+    coverPhotoId: cover[row.id] || null,
+    photoCount: counts[row.id] || 0,
+  }));
+
+  res.json({ listings, cities: all, types });
 });
 
 app.get("/api/listings/:id", (req, res) => {
@@ -346,11 +409,18 @@ app.get("/api/listings/:id", (req, res) => {
     },
   });
 
+  // Photo metadata only (id + caption); the browser fetches the bytes from
+  // /api/listing-photos/:id, so the JSON stays light.
+  const photos = db
+    .prepare("SELECT id, caption FROM listing_photos WHERE listing_id = ? ORDER BY sort, created_at")
+    .all(row.id);
+
   res.json({
     listing: listingToApi(row),
     ownerName: owner ? owner.name : "Unknown",
     bookedRanges,
     blockedDates,
+    photos,
   });
 });
 
@@ -466,6 +536,74 @@ app.post("/api/listings", requireAuth("owner"), (req, res) => {
     },
   });
   res.status(201).json({ listing: listingToApi(listing) });
+});
+
+// ---------- listing site photos ----------
+// Photos of the physical location, attached by the owner when listing. Unlike
+// proof-of-play photos (which live inline in booking JSON), these are served as
+// real image responses so the browse list can show a cover thumbnail without
+// carrying base64 in every listing payload.
+
+const IMG_DATA_URL = /^data:image\/(jpeg|png|webp);base64,/;
+
+// Validate + insert one listing photo. Shared so create-with-photos and the
+// standalone upload route can never drift in what they accept. Returns the
+// inserted row's public shape, or throws an Error with a user-facing message.
+function addListingPhoto(listingId, imageDataUrl, caption) {
+  if (!imageDataUrl || !IMG_DATA_URL.test(imageDataUrl))
+    throw new Error("A valid image is required.");
+  if (imageDataUrl.length > 3_500_000)
+    throw new Error("That image is too large. Try a smaller photo.");
+  const next =
+    db.prepare("SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM listing_photos WHERE listing_id = ?").get(listingId).n;
+  const photo = {
+    id: "lp-" + crypto.randomBytes(6).toString("hex"),
+    listing_id: listingId,
+    image_data: imageDataUrl,
+    caption: String(caption || "").trim(),
+    sort: next,
+    created_at: new Date().toISOString(),
+  };
+  db.prepare(
+    `INSERT INTO listing_photos (id, listing_id, image_data, caption, sort, created_at)
+     VALUES (@id, @listing_id, @image_data, @caption, @sort, @created_at)`
+  ).run(photo);
+  return { id: photo.id, caption: photo.caption, sort: photo.sort };
+}
+
+// The image bytes themselves. Public — a listing and its site photos are public
+// info. Content is immutable (a photo id never changes what it points at), so
+// it can be cached hard.
+app.get("/api/listing-photos/:photoId", (req, res) => {
+  const row = db.prepare("SELECT image_data FROM listing_photos WHERE id = ?").get(req.params.photoId);
+  if (!row) return res.status(404).end();
+  const m = /^data:(image\/[a-z]+);base64,(.*)$/s.exec(row.image_data);
+  if (!m) return res.status(404).end();
+  res.setHeader("Content-Type", m[1]);
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.end(Buffer.from(m[2], "base64"));
+});
+
+app.post("/api/listings/:id/photos", requireAuth("owner"), (req, res) => {
+  const listing = db.prepare("SELECT owner_id FROM listings WHERE id = ?").get(req.params.id);
+  if (!listing) return res.status(404).json({ error: "Listing not found." });
+  if (listing.owner_id !== req.user.id)
+    return res.status(403).json({ error: "This isn't your listing." });
+  try {
+    const photo = addListingPhoto(req.params.id, (req.body || {}).imageDataUrl, (req.body || {}).caption);
+    res.status(201).json({ photo });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.delete("/api/listings/:id/photos/:photoId", requireAuth("owner"), (req, res) => {
+  const listing = db.prepare("SELECT owner_id FROM listings WHERE id = ?").get(req.params.id);
+  if (!listing) return res.status(404).json({ error: "Listing not found." });
+  if (listing.owner_id !== req.user.id)
+    return res.status(403).json({ error: "This isn't your listing." });
+  db.prepare("DELETE FROM listing_photos WHERE id = ? AND listing_id = ?").run(req.params.photoId, req.params.id);
+  res.json({ ok: true });
 });
 
 // ---------- bookings ----------
@@ -997,21 +1135,36 @@ app.get("/api/service-requests", requireAuth(), (req, res) => {
   });
 });
 
-// ---------- insights (private) ----------
-// Aggregates over the event log. Gated by ADMIN_TOKEN: this is commercial
-// intelligence, not public data. With no token configured the route does not
-// exist at all, so an unconfigured deploy can't leak it.
+// ---------- admin console (private) ----------
+// Everything an operator needs to run the marketplace: event-log insights,
+// bookings oversight, the manual payout ledger, refunds and policy adoption.
+// Two ways in — a logged-in admin session (the console UI) or the legacy
+// ADMIN_TOKEN (scripts/curl). To anyone else the whole surface 404s, so an
+// unconfigured deploy leaks nothing and there's no admin login to probe.
 
 function requireAdmin(req, res, next) {
+  // Preferred path: a session belonging to an operator account.
+  const user = currentUser(req);
+  if (user && isAdmin(user)) { req.user = user; return next(); }
+
+  // Legacy path: the shared admin token, for scripts and curl.
   const expected = process.env.ADMIN_TOKEN;
-  if (!expected) return res.status(404).json({ error: "Not found." });
-  const given = req.get("x-admin-token") || req.query.token || "";
-  const a = Buffer.from(String(given));
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b))
-    return res.status(401).json({ error: "Unauthorized." });
-  next();
+  if (expected) {
+    const given = req.get("x-admin-token") || req.query.token || "";
+    const a = Buffer.from(String(given));
+    const b = Buffer.from(expected);
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return next();
+  }
+
+  // Give nothing away: same 404 whether or not the caller is even logged in.
+  return res.status(404).json({ error: "Not found." });
 }
+
+// Cheap gate the console page calls to decide whether to render. A 200 means
+// "you're an operator"; anything else (404) means "you're not".
+app.get("/api/admin/me", requireAdmin, (req, res) => {
+  res.json({ admin: true, name: req.user ? req.user.name : null });
+});
 
 app.get("/api/admin/insights", requireAdmin, (req, res) => {
   const days = Math.min(Number(req.query.days) || 30, 365);
@@ -1087,6 +1240,130 @@ app.get("/api/admin/insights", requireAdmin, (req, res) => {
     decisions,
     topListings,
   });
+});
+
+// High-level numbers for the top of the console. All money in paise.
+app.get("/api/admin/overview", requireAdmin, (req, res) => {
+  const one = (sql, ...p) => db.prepare(sql).get(...p);
+  const usersByRole = db.prepare("SELECT role, COUNT(*) AS n FROM users GROUP BY role").all();
+  res.json({
+    users: one("SELECT COUNT(*) AS n FROM users").n,
+    usersByRole,
+    listings: one("SELECT COUNT(*) AS n FROM listings").n,
+    bookings: one("SELECT COUNT(*) AS n FROM bookings").n,
+    paidBookings: one("SELECT COUNT(*) AS n FROM bookings WHERE payment_status = 'paid'").n,
+    grossPaisePaid: one("SELECT COALESCE(SUM(amount_total),0) AS s FROM bookings WHERE payment_status = 'paid'").s,
+    platformPaise: one("SELECT COALESCE(SUM(platform_fee),0) AS s FROM bookings WHERE payment_status = 'paid'").s,
+    // Owner money we've collected but not yet transferred out — the payout backlog.
+    owedToOwnersPaise: one(
+      "SELECT COALESCE(SUM(owner_payout),0) AS s FROM bookings WHERE payment_status = 'paid' AND paid_out_at IS NULL"
+    ).s,
+  });
+});
+
+// Every booking with the people + money attached. Backs both the Bookings view
+// and the payout ledger (they're the same rows, filtered client-side).
+app.get("/api/admin/bookings", requireAdmin, (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT b.*, l.title AS listingTitle, l.city AS listingCity,
+              c.name AS clientName, c.email AS clientEmail,
+              o.name AS ownerName, o.email AS ownerEmail
+         FROM bookings b
+         JOIN listings l ON l.id = b.listing_id
+         JOIN users c ON c.id = b.client_id
+         JOIN users o ON o.id = l.owner_id
+        ORDER BY b.created_at DESC`
+    )
+    .all();
+  res.json({
+    bookings: rows.map((b) => ({
+      id: b.id,
+      listingTitle: b.listingTitle,
+      city: b.listingCity,
+      clientName: b.clientName,
+      clientEmail: b.clientEmail,
+      ownerName: b.ownerName,
+      ownerEmail: b.ownerEmail,
+      startDate: b.start_date,
+      endDate: b.end_date,
+      status: b.status,
+      paymentStatus: b.payment_status || "unpaid",
+      amountTotalPaise: b.amount_total || 0,
+      platformFeePaise: b.platform_fee || 0,
+      ownerPayoutPaise: b.owner_payout || 0,
+      paymentId: b.payment_id || null,
+      paidOutAt: b.paid_out_at || null,
+      refundedAt: b.refunded_at || null,
+      createdAt: b.created_at,
+    })),
+  });
+});
+
+// Records a completed refund against a booking and cancels it. Kept separate
+// from the Razorpay call so the money-moving step and the bookkeeping step are
+// distinct, and so the analytics event (which must never throw) can't take the
+// booking update down with it.
+function applyRefund(booking, refund) {
+  db.prepare(
+    "UPDATE bookings SET payment_status = 'refunded', status = 'cancelled', refund_id = ?, refunded_at = ? WHERE id = ?"
+  ).run(String(refund.id || ""), new Date().toISOString(), booking.id);
+
+  track("booking_refunded", {
+    req: null,
+    listingId: booking.listing_id,
+    bookingId: booking.id,
+    price: (booking.amount_total || 0) / 100,
+    props: { amountRefunded: (booking.amount_total || 0) / 100, refundId: refund.id || null },
+  });
+}
+
+// Admin-initiated full refund of a paid booking. Refunds the money via Razorpay,
+// then cancels the booking. The owner payout (if any) is off-platform, so an
+// operator must not have marked it paid out before refunding — we block that.
+app.post("/api/admin/bookings/:id/refund", requireAdmin, async (req, res) => {
+  if (!X.razorpayEnabled())
+    return res.status(503).json({ error: "Online payments aren't switched on." });
+  const booking = db.prepare("SELECT * FROM bookings WHERE id = ?").get(req.params.id);
+  if (!booking) return res.status(404).json({ error: "Booking not found." });
+  if (booking.payment_status === "refunded")
+    return res.status(400).json({ error: "This booking was already refunded." });
+  if (booking.payment_status !== "paid" || !booking.payment_id)
+    return res.status(400).json({ error: "Only a paid booking can be refunded." });
+  if (booking.paid_out_at)
+    return res.status(400).json({ error: "Owner payout already sent — reconcile that before refunding." });
+
+  try {
+    const refund = await X.razorpayRefund({ paymentId: booking.payment_id, amountPaise: booking.amount_total });
+    applyRefund(booking, refund);
+    res.json({ ok: true, refundId: refund.id || null });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// Mark (or unmark) that the owner's share for a paid booking has been transferred.
+app.post("/api/admin/bookings/:id/payout", requireAdmin, (req, res) => {
+  const booking = db.prepare("SELECT * FROM bookings WHERE id = ?").get(req.params.id);
+  if (!booking) return res.status(404).json({ error: "Booking not found." });
+  if (booking.payment_status !== "paid")
+    return res.status(400).json({ error: "Only paid bookings have a payout." });
+  const undo = (req.body || {}).undo === true;
+  const paidOutAt = undo ? null : new Date().toISOString();
+  db.prepare("UPDATE bookings SET paid_out_at = ? WHERE id = ?").run(paidOutAt, booking.id);
+  res.json({ ok: true, paidOutAt });
+});
+
+// Policy adoption: how many users are on the current version, which is how the
+// operator watches a policy push land after bumping POLICY_VERSION.
+app.get("/api/admin/policy", requireAdmin, (req, res) => {
+  const one = (sql, ...p) => db.prepare(sql).get(...p);
+  const totalUsers = one("SELECT COUNT(*) AS n FROM users").n;
+  const accepted = one(
+    "SELECT COUNT(DISTINCT user_id) AS n FROM user_consents WHERE policy_version = ?",
+    POLICY_VERSION
+  ).n;
+  res.json({ policyVersion: POLICY_VERSION, totalUsers, acceptedCurrent: accepted });
 });
 
 app.listen(PORT, () => {

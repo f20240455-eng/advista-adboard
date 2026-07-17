@@ -303,6 +303,11 @@ function renderNav(user, activePage) {
 
   mountInstallBanner();
 
+  // If the user hasn't accepted the current policy version, block the app until
+  // they do. This is the single enforcement point for both new Google users and
+  // existing users after a policy bump (see POLICY_VERSION in db.js).
+  if (user && user.needsConsent) mountConsentGate();
+
   // Offer the install button only where it can actually do something: a browser
   // that has told us the app is installable, and not already installed.
   const installBtn = document.getElementById("nav-install");
@@ -317,6 +322,54 @@ function renderNav(user, activePage) {
       installBtn.hidden = true;
     });
   }
+}
+
+// A non-dismissible modal shown when a user must (re-)accept the policies.
+// Deliberately has no close affordance and no backdrop-click escape: the app is
+// unusable until they accept, which is the point once real money is involved.
+function mountConsentGate() {
+  if (document.getElementById("consent-gate")) return;
+  const backdrop = document.createElement("div");
+  backdrop.id = "consent-gate";
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="consent-title">
+      <h3 id="consent-title">We've updated our terms</h3>
+      <p style="color: var(--muted); margin-bottom: 16px;">
+        Before you continue, please review and accept our
+        <a href="/terms.html" target="_blank" rel="noopener">Terms of Service</a>,
+        <a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a> and
+        <a href="/refunds.html" target="_blank" rel="noopener">Refund &amp; Cancellation Policy</a>.
+      </p>
+      <div class="form-error" id="consent-err" style="display:none;"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline btn-small" id="consent-logout">Log out</button>
+        <button type="button" class="btn btn-primary btn-small" id="consent-accept">I accept</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+
+  document.getElementById("consent-accept").addEventListener("click", async () => {
+    const btn = document.getElementById("consent-accept");
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    try {
+      await api("/api/accept-terms", { method: "POST" });
+      backdrop.remove();
+      showToast("Thanks — you're all set.");
+    } catch (e) {
+      const err = document.getElementById("consent-err");
+      err.textContent = e.message || "Could not save. Please try again.";
+      err.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "I accept";
+    }
+  });
+  // The only way out without accepting is to leave.
+  document.getElementById("consent-logout").addEventListener("click", async () => {
+    await api("/api/logout", { method: "POST" }).catch(() => {});
+    window.location.href = "/";
+  });
 }
 
 function renderFooter() {
@@ -342,8 +395,17 @@ function renderFooter() {
           <h4>Get in touch</h4>
           <ul>
             <li><a href="/install.html">Get the app</a></li>
+            <li><a href="/contact.html">Contact us</a></li>
             <li><a href="mailto:hello@bookmyboard.in">hello@bookmyboard.in</a></li>
             <li>Mon–Sat, 10am–7pm</li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Legal</h4>
+          <ul>
+            <li><a href="/terms.html">Terms of Service</a></li>
+            <li><a href="/privacy.html">Privacy Policy</a></li>
+            <li><a href="/refunds.html">Refund &amp; Cancellation</a></li>
           </ul>
         </div>
       </div>
@@ -355,12 +417,19 @@ function renderFooter() {
 }
 
 function listingCardHTML(l) {
+  // Prefer a real site photo the owner uploaded; fall back to the stock theme
+  // image when there isn't one. Photo bytes come from a cacheable image route,
+  // not the listing JSON.
+  const img = l.coverPhotoId
+    ? `/api/listing-photos/${encodeURIComponent(l.coverPhotoId)}`
+    : themePhoto(l.theme, 600);
   return `
     <a class="listing-card" href="/listing.html?id=${encodeURIComponent(l.id)}">
       <div class="card-banner">
-        <img src="${themePhoto(l.theme, 600)}" alt="" loading="lazy" />
+        <img src="${img}" alt="" loading="lazy" />
         <span class="type-tag">${esc(l.type)}</span>
         ${l.lit ? '<span class="lit-tag">Backlit</span>' : ""}
+        ${l.photoCount > 1 ? `<span class="photo-count-tag">${l.photoCount} photos</span>` : ""}
       </div>
       <div class="card-body">
         <h3>${esc(l.title)}</h3>

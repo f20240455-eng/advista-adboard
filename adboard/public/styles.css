@@ -426,6 +426,7 @@ nav {
 .badge-pending { background: var(--warn-soft); color: var(--warn); }
 .badge-approved { background: var(--success-soft); color: var(--success); }
 .badge-rejected { background: var(--danger-soft); color: var(--danger); }
+.badge-cancelled { background: var(--danger-soft); color: var(--danger); }
 .row-actions { display: flex; gap: 8px; }
 @media (min-width: 640px) {
   .booking-row { flex-direction: row; justify-content: space-between; align-items: center; }
@@ -601,7 +602,9 @@ nav {
 
 footer { border-top: 1px solid var(--border); background: var(--bg-soft); padding: 40px 0 26px; color: var(--muted); font-size: 0.88rem; }
 .footer-grid { display: grid; grid-template-columns: 1fr; gap: 26px; margin-bottom: 28px; }
-@media (min-width: 640px) { .footer-grid { grid-template-columns: 1.6fr 1fr 1fr; } }
+@media (min-width: 560px) { .footer-grid { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 860px) { .footer-grid { grid-template-columns: 1.7fr 1fr 1fr 1fr; } }
+@media (min-width: 560px) and (max-width: 859px) { .footer-brand { grid-column: 1 / -1; } }
 .footer-brand .brand { margin-bottom: 10px; font-size: 1.15rem; }
 .footer-brand p { max-width: 280px; font-size: 0.86rem; }
 .footer-col h4 { color: var(--ink); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; font-weight: 700; }
@@ -610,3 +613,40 @@ footer { border-top: 1px solid var(--border); background: var(--bg-soft); paddin
 .footer-col a { color: var(--muted); }
 .footer-col a:hover { color: var(--brand); text-decoration: none; }
 .footer-bottom { border-top: 1px solid var(--border); padding-top: 18px; font-size: 0.8rem; display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: space-between; }
+
+/* ---------- listing site photos ---------- */
+/* Gallery thumbnail strip under the detail banner. */
+.detail-gallery { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+.detail-gallery:empty { display: none; }
+.gallery-thumb {
+  width: 76px; height: 58px; padding: 0; border: 2px solid transparent; border-radius: 10px;
+  overflow: hidden; cursor: pointer; background: var(--bg-soft); flex: none;
+}
+.gallery-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.gallery-thumb.active { border-color: var(--brand); }
+/* "3 photos" pill on browse cards that have more than one site photo. */
+.photo-count-tag {
+  position: absolute; bottom: 10px; right: 10px; z-index: 2;
+  background: rgba(34, 29, 21, 0.72); color: #fff; font-size: 0.72rem; font-weight: 600;
+  padding: 3px 8px; border-radius: 20px;
+}
+/* Remove (×) button on the site-photo picker thumbnails in the add form. */
+.photo-thumb .thumb-remove {
+  position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
+  border: none; background: var(--danger); color: #fff; font-size: 14px; line-height: 1;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;
+}
+
+/* ---------- legal / policy documents ---------- */
+.legal { max-width: 760px; margin: 0 auto; padding: 40px 20px 64px; animation: fadeUp 0.35s ease both; }
+.legal h1 { font-size: clamp(1.7rem, 5vw, 2.2rem); font-weight: 600; letter-spacing: -0.01em; margin-bottom: 6px; }
+.legal .updated { color: var(--muted); font-size: 0.85rem; margin-bottom: 10px; }
+.legal .lead { color: var(--muted); font-size: 1rem; margin-bottom: 28px; }
+.legal h2 { font-size: 1.2rem; font-weight: 600; margin: 30px 0 10px; }
+.legal h3 { font-size: 1rem; font-weight: 600; margin: 18px 0 6px; }
+.legal p, .legal li { color: var(--ink); font-size: 0.95rem; margin-bottom: 10px; }
+.legal ul, .legal ol { padding-left: 22px; margin-bottom: 10px; }
+.legal li { margin-bottom: 6px; }
+.legal .placeholder { background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 1px 6px; font-weight: 600; font-size: 0.85em; }
+.legal .callout { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin: 18px 0; font-size: 0.9rem; }
+.legal .entity-block { border-left: 3px solid var(--brand); padding: 6px 0 6px 16px; margin: 14px 0; color: var(--muted); font-size: 0.9rem; }

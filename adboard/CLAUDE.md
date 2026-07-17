@@ -49,10 +49,12 @@ adboard/
 ```
 
 Tables: `users, listings, bookings, sessions, password_resets, oauth_states,
-vendors, service_requests, blocked_dates, booking_photos, events`.
+vendors, service_requests, blocked_dates, booking_photos, listing_photos,
+user_consents, events`.
 
 Roles: `client` (advertiser), `owner` (has space), `vendor` (printer/fabricator/
-installer).
+installer). An `is_admin` flag on `users` (set from `ADMIN_EMAILS`, never via any
+public path) gates the private operator console at `/console.html`.
 
 ## Non-negotiable invariants
 
@@ -94,6 +96,20 @@ Each of these was a real bug or a deliberate defense. Don't regress them.
    money), the charged amount is checked against our locked quote, and unknown
    orders still return 2xx — a non-2xx makes Razorpay retry for hours over
    something retries can't fix.
+10. **The admin surface 404s for everyone who isn't an operator — never 403.**
+    `requireAdmin` returns the same "Not found" whether the caller is anonymous
+    or a logged-in non-admin, so the console API can't be probed. There is no
+    admin link anywhere public and no public way to become admin; `is_admin` is
+    synced from `ADMIN_EMAILS` on login only.
+11. **Consent is enforced server-side, and re-consent is a single gate.** Register
+    rejects without `acceptedTerms`; `/api/me` returns `needsConsent`, and one
+    blocking modal in `shared.js` (`mountConsentGate`) covers new Google users
+    and every existing user after a `POLICY_VERSION` bump. Bumping that constant
+    (in `db.js`) is how a new policy is "pushed" — no per-user migration.
+12. **A refunded booking must leave the revenue/payout math.** `applyRefund`
+    sets `payment_status='refunded'` + `status='cancelled'`; every admin
+    overview/ledger figure filters on `payment_status='paid'`, so refunds fall
+    out automatically. Refund is blocked once the owner payout is marked sent.
 
 ## Design system — and why it looks like this
 
@@ -127,6 +143,20 @@ so don't drift back toward generic SaaS.
   actually up, 400km away?" Compressed client-side via canvas before upload.
   (Currently base64 in SQLite — fine at MVP scale, should move to object
   storage later.)
+- **Listing site photos** — owner attaches photos of the physical location on
+  the *Add a space* form (reuses `fileToCompressedDataUrl`). Served as real image
+  responses from `/api/listing-photos/:id` (not base64 in the listing JSON), so
+  the browse list stays light; shown as a cover thumbnail on cards and a swappable
+  gallery on the listing page. Same base64-in-SQLite storage caveat as above.
+- **Legal + consent** — Terms, Privacy (DPDP-aware), Refund/Cancellation and
+  Contact pages, footer-linked. Consent captured at signup and re-forced on a
+  `POLICY_VERSION` bump (see invariant 11). Entity name/address are marked-up
+  placeholders until the business is registered — **fill before go-live.**
+- **Operator console** (`/console.html`, unlinked) — insights, a bookings view,
+  the manual owner-payout ledger, refunds, and policy-adoption. Admin-gated
+  (invariant 10). Owner payouts are **off-platform**: the ledger tracks who is
+  owed what; you transfer and mark it paid. Refunds are admin-initiated full
+  Razorpay refunds (see invariant 12).
 - **Payments + commission** — quote is **locked at request time** so it can't
   move between request and approval. Owner sees net payout after fee.
   `PLATFORM_COMMISSION_PCT` default 10. Confirmation arrives by **two
@@ -263,14 +293,22 @@ vigyapanmart/shubindia rate guides.
 
 ## Roadmap / next candidates
 
+Done in the production-readiness pass (all verified end-to-end): legal/consent,
+listing site photos, private operator console + manual payout ledger, and the
+admin refund/cancellation flow.
+
+- **Click through the live Razorpay test-mode pay loop from the UI** — the only
+  untested-in-browser piece; blocked on real test keys. Our own logic (order,
+  verify, webhook, refund) is verified; the hosted checkout widget needs keys.
 - **CV site verification** (the hackathon's other half) — auto-estimate
   footfall/visibility, confirm specs from a photo. Feeds the measurement
-  standard above.
+  standard above. **The honest next big build.**
 - Map view of inventory; permit/licence number field.
-- Razorpay Route for automatic owner payouts.
-- Proof photos → object storage (S3/R2) instead of base64 in SQLite.
+- Razorpay Route for automatic owner payouts (replaces the manual ledger).
+- Listing/site photos + proof photos → object storage (S3/R2) instead of base64.
 - Recalibrate `pricing.js` constants once bookings exist.
-- Real domain (kills the stale `advista` URL).
+- **Real domain** (kills the stale `advista` URL) + fill the legal-entity
+  placeholders in the policy pages — both gate Razorpay live-mode activation.
 
 ## Blocked on the user (accounts only they can create)
 
@@ -283,8 +321,13 @@ alone, no code changes:
 | `RAZORPAY_KEY_ID` / `_SECRET` | payments + commission | **not set** |
 | `RAZORPAY_WEBHOOK_SECRET` | webhook backstop (route 404s until set) | **not set** |
 | `RESEND_API_KEY` | password-reset emails | **not set** (links print to server log meanwhile) |
-| `ADMIN_TOKEN` | `/api/admin/insights` | **set** |
+| `ADMIN_TOKEN` | admin API for scripts/curl (legacy) | **set** |
+| `ADMIN_EMAILS` | operator console login (comma-separated) | **not set** — set to your email(s) |
 | `DATA_DIR=/data` | SQLite persistence | **set**, volume mounted |
+
+`RAZORPAY_API_BASE` exists only as a test seam (defaults to the real API);
+**never set it in production.** Operator console: set `ADMIN_EMAILS` to your
+account email, sign in normally, then open `/console.html` (it's unlinked).
 
 Razorpay setup, when the account exists: create the webhook in Dashboard →
 Settings → Webhooks pointing at `<APP_URL>/api/webhooks/razorpay`, subscribe to

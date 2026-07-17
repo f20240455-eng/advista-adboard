@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Operator console — BookMyBoard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230b6e5c'/><text x='50' y='70' font-size='58' text-anchor='middle' fill='white' font-family='Georgia,serif' font-weight='bold'>B</text></svg>" />
+  <meta name="theme-color" content="#0b6e5c" />
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .console-head { border-bottom: 1px solid var(--border); background: var(--bg-soft); padding: 16px 0; }
+    .console-head .container { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .console-head .op-tag { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
+    .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 18px 0 8px; }
+    @media (min-width: 720px) { .tiles { grid-template-columns: repeat(4, 1fr); } }
+    .tile { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+    .tile .k { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .tile .v { font-family: var(--font-head); font-size: 1.5rem; font-weight: 600; margin-top: 4px; }
+    .tile .v small { font-family: var(--font-body); font-size: 0.8rem; font-weight: 500; color: var(--muted); }
+    .con-section { margin-top: 28px; }
+    .con-section h2 { font-size: 1.15rem; font-weight: 600; margin-bottom: 4px; }
+    .con-section .hint { color: var(--muted); font-size: 0.85rem; margin-bottom: 12px; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+    table.grid { width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 720px; }
+    table.grid th, table.grid td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    table.grid th { background: var(--bg-soft); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+    table.grid tr:last-child td { border-bottom: none; }
+    .muted { color: var(--muted); }
+    .num { font-variant-numeric: tabular-nums; }
+    .pill { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 20px; }
+    .pill.paid { background: var(--success-soft); color: var(--success); }
+    .pill.unpaid { background: var(--bg-soft); color: var(--muted); }
+    .pill.out { background: var(--brand-soft); color: var(--brand-dark); }
+    .pill.owed { background: var(--warn-soft); color: var(--warn); }
+    .pill.refunded { background: var(--danger-soft); color: var(--danger); }
+    .con-empty { padding: 26px; text-align: center; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="console-head">
+    <div class="container">
+      <a href="#" class="brand" style="font-size:1.2rem;">Book<span class="accent-word">MyBoard</span></a>
+      <div style="display:flex; align-items:center; gap:14px;">
+        <span class="op-tag" id="op-who">Operator console</span>
+        <button class="btn btn-outline btn-small" id="op-logout" style="display:none;">Log out</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Login gate -->
+  <div class="auth-wrap" id="gate">
+    <div class="panel">
+      <h1 style="font-size:1.35rem; text-align:center; margin-bottom:4px;">Operator sign in</h1>
+      <p class="sub" style="text-align:center; color:var(--muted); margin-bottom:18px;">Restricted to BookMyBoard operators.</p>
+      <div class="form-error" id="gate-err" style="display:none;"></div>
+      <div class="form-group"><label>Email</label><input type="email" id="g-email" autocomplete="email" /></div>
+      <div class="form-group"><label>Password</label><input type="password" id="g-pass" autocomplete="current-password" /></div>
+      <button class="btn btn-primary btn-block" id="g-submit">Sign in</button>
+    </div>
+  </div>
+
+  <!-- Console -->
+  <div class="container" id="console" style="display:none; padding-bottom:60px;">
+    <div class="tiles" id="tiles"></div>
+    <p class="muted" id="policy-line" style="font-size:0.85rem;"></p>
+
+    <div class="con-section">
+      <h2>Bookings &amp; payout ledger</h2>
+      <p class="hint">Every booking. For paid ones, mark when you've transferred the owner's share to their bank.</p>
+      <div class="table-wrap"><table class="grid" id="bk-table"></table></div>
+    </div>
+  </div>
+
+  <script src="/shared.js"></script>
+  <script>
+    const el = (id) => document.getElementById(id);
+    const rupees = (paise) => formatINR(Math.round((paise || 0) / 100));
+
+    async function isOperator() {
+      try { await api("/api/admin/me"); return true; } catch { return false; }
+    }
+
+    function renderTiles(o) {
+      const roles = Object.fromEntries((o.usersByRole || []).map((r) => [r.role, r.n]));
+      el("tiles").innerHTML = [
+        ["Users", `${o.users} <small>${roles.client || 0} adv · ${roles.owner || 0} own · ${roles.vendor || 0} sup</small>`],
+        ["Listings", o.listings],
+        ["Bookings", `${o.bookings} <small>${o.paidBookings} paid</small>`],
+        ["Gross collected", rupees(o.grossPaisePaid)],
+        ["Platform revenue", rupees(o.platformPaise)],
+        ["Owed to owners", `${rupees(o.owedToOwnersPaise)}`],
+      ].map(([k, v]) => `<div class="tile"><div class="k">${esc(k)}</div><div class="v">${v}</div></div>`).join("");
+    }
+
+    async function loadPolicy() {
+      try {
+        const p = await api("/api/admin/policy");
+        el("policy-line").innerHTML =
+          `Policy version <strong>${esc(p.policyVersion)}</strong> — accepted by ${p.acceptedCurrent} of ${p.totalUsers} users.`;
+      } catch {}
+    }
+
+    async function loadBookings() {
+      const { bookings } = await api("/api/admin/bookings");
+      const t = el("bk-table");
+      if (!bookings.length) {
+        t.outerHTML = '<div class="table-wrap"><div class="con-empty">No bookings yet.</div></div>';
+        return;
+      }
+      t.innerHTML =
+        `<thead><tr>
+           <th>Space</th><th>Advertiser</th><th>Owner</th><th>Dates</th>
+           <th>Status</th><th>Payment</th><th class="num">Total</th>
+           <th class="num">Fee</th><th class="num">Owner payout</th><th>Ledger</th>
+         </tr></thead><tbody>` +
+        bookings.map((b) => {
+          let ledger;
+          if (b.paymentStatus === "refunded") {
+            ledger = `<span class="pill refunded">Refunded</span>`;
+          } else if (b.paymentStatus === "paid") {
+            const payout = b.paidOutAt
+              ? `<span class="pill out">Paid out</span> <button class="btn btn-outline btn-small" data-undo="${esc(b.id)}">Undo</button>`
+              : `<span class="pill owed">Owed</span> <button class="btn btn-primary btn-small" data-payout="${esc(b.id)}">Mark paid</button>`;
+            // A refund can't be issued after the owner payout has gone out.
+            const refund = b.paidOutAt ? "" : ` <button class="btn btn-outline btn-small" data-refund="${esc(b.id)}">Refund</button>`;
+            ledger = payout + refund;
+          } else {
+            ledger = `<span class="muted">—</span>`;
+          }
+          const payPill = b.paymentStatus === "paid" ? "paid" : b.paymentStatus === "refunded" ? "refunded" : "unpaid";
+          return `<tr>
+            <td>${esc(b.listingTitle)}<div class="muted">${esc(b.city)}</div></td>
+            <td>${esc(b.clientName)}<div class="muted">${esc(b.clientEmail)}</div></td>
+            <td>${esc(b.ownerName)}<div class="muted">${esc(b.ownerEmail)}</div></td>
+            <td>${esc(b.startDate)}<div class="muted">→ ${esc(b.endDate)}</div></td>
+            <td><span class="badge badge-${esc(b.status)}">${esc(b.status)}</span></td>
+            <td><span class="pill ${payPill}">${esc(b.paymentStatus)}</span></td>
+            <td class="num">${rupees(b.amountTotalPaise)}</td>
+            <td class="num">${rupees(b.platformFeePaise)}</td>
+            <td class="num">${rupees(b.ownerPayoutPaise)}</td>
+            <td>${ledger}</td>
+          </tr>`;
+        }).join("") + "</tbody>";
+
+      t.querySelectorAll("[data-payout]").forEach((btn) =>
+        btn.addEventListener("click", () => markPayout(btn.dataset.payout, false)));
+      t.querySelectorAll("[data-undo]").forEach((btn) =>
+        btn.addEventListener("click", () => markPayout(btn.dataset.undo, true)));
+      t.querySelectorAll("[data-refund]").forEach((btn) =>
+        btn.addEventListener("click", () => refundBooking(btn.dataset.refund)));
+    }
+
+    async function refundBooking(id) {
+      if (!confirm("Refund this booking in full and cancel it? This returns the money to the advertiser via Razorpay.")) return;
+      try {
+        await api(`/api/admin/bookings/${id}/refund`, { method: "POST", body: JSON.stringify({}) });
+        showToast("Refund issued.");
+        await Promise.all([loadOverview(), loadBookings()]);
+      } catch (e) { showToast(e.message, "error"); }
+    }
+
+    async function markPayout(id, undo) {
+      try {
+        await api(`/api/admin/bookings/${id}/payout`, { method: "POST", body: JSON.stringify({ undo }) });
+        showToast(undo ? "Marked as not paid out." : "Marked paid out.");
+        await Promise.all([loadOverview(), loadBookings()]);
+      } catch (e) { showToast(e.message, "error"); }
+    }
+
+    async function loadOverview() {
+      try { renderTiles(await api("/api/admin/overview")); } catch {}
+    }
+
+    async function showConsole() {
+      el("gate").style.display = "none";
+      el("console").style.display = "block";
+      el("op-logout").style.display = "inline-flex";
+      try { const m = await api("/api/admin/me"); if (m.name) el("op-who").textContent = m.name; } catch {}
+      await Promise.all([loadOverview(), loadPolicy(), loadBookings()]);
+    }
+
+    el("g-submit").addEventListener("click", async () => {
+      el("gate-err").style.display = "none";
+      const btn = el("g-submit"); btn.disabled = true;
+      try {
+        await api("/api/login", { method: "POST", body: JSON.stringify({ email: el("g-email").value, password: el("g-pass").value }) });
+        if (await isOperator()) { showConsole(); }
+        else {
+          await api("/api/logout", { method: "POST" }).catch(() => {});
+          el("gate-err").textContent = "This account isn't an operator.";
+          el("gate-err").style.display = "block";
+        }
+      } catch (e) {
+        el("gate-err").textContent = e.message;
+        el("gate-err").style.display = "block";
+      } finally { btn.disabled = false; }
+    });
+    document.addEventListener("keydown", (e) => { if (e.key === "Enter" && el("gate").style.display !== "none") el("g-submit").click(); });
+
+    el("op-logout").addEventListener("click", async () => {
+      await api("/api/logout", { method: "POST" }).catch(() => {});
+      window.location.reload();
+    });
+
+    // Already signed in as an operator? Skip the gate.
+    (async () => { if (await isOperator()) showConsole(); })();
+  </script>
+</body>
+</html>

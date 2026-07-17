@@ -102,22 +102,47 @@ async function googleExchange(req, code) {
 
 // ---------- Razorpay ----------
 // Amounts are in paise throughout.
+// Base URL is overridable so tests can point the outbound calls at a local
+// stand-in; it defaults to the real API and is never set in production.
+const RAZORPAY_API_BASE = process.env.RAZORPAY_API_BASE || "https://api.razorpay.com";
+
+function razorpayAuthHeader() {
+  return "Basic " + Buffer.from(`${RAZORPAY_KEY_ID}:${RAZORPAY_KEY_SECRET}`).toString("base64");
+}
+
 function splitAmount(amountPaise) {
   const platformFee = Math.round((amountPaise * COMMISSION_PCT) / 100);
   return { amountTotal: amountPaise, platformFee, ownerPayout: amountPaise - platformFee };
 }
 
 async function razorpayCreateOrder({ amountPaise, receipt, notes }) {
-  const auth = Buffer.from(`${RAZORPAY_KEY_ID}:${RAZORPAY_KEY_SECRET}`).toString("base64");
-  const res = await fetch("https://api.razorpay.com/v1/orders", {
+  const res = await fetch(`${RAZORPAY_API_BASE}/v1/orders`, {
     method: "POST",
-    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
+    headers: { Authorization: razorpayAuthHeader(), "Content-Type": "application/json" },
     body: JSON.stringify({ amount: amountPaise, currency: "INR", receipt, notes }),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     console.error("Razorpay order failed:", res.status, body);
     throw new Error("Could not start the payment. Please try again.");
+  }
+  return res.json();
+}
+
+// Refund a captured payment. Omitting an amount tells Razorpay to refund it in
+// full; passing amountPaise allows a partial refund. Returns the refund object
+// (its `id` is what we record against the booking).
+async function razorpayRefund({ paymentId, amountPaise }) {
+  const body = amountPaise ? { amount: amountPaise } : {};
+  const res = await fetch(`${RAZORPAY_API_BASE}/v1/payments/${paymentId}/refund`, {
+    method: "POST",
+    headers: { Authorization: razorpayAuthHeader(), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    console.error("Razorpay refund failed:", res.status, errBody);
+    throw new Error("The refund could not be processed. Please try again.");
   }
   return res.json();
 }
@@ -157,6 +182,7 @@ module.exports = {
   googleExchange,
   splitAmount,
   razorpayCreateOrder,
+  razorpayRefund,
   razorpayVerify,
   razorpayVerifyWebhook,
 };
