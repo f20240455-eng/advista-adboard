@@ -59,7 +59,17 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
 }
 
 // Default 100kb is too small for proof-of-play photo uploads (base64 JPEGs).
-app.use(express.json({ limit: "4mb" }));
+// `verify` runs before parsing, so it is the one place the untouched bytes are
+// still available. The Razorpay webhook signs raw bytes, and re-serialising the
+// parsed object would not reproduce them byte-for-byte.
+app.use(
+  express.json({
+    limit: "4mb",
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.use(express.static(path.join(__dirname, "public")));
 
 // Tells the front-end which optional integrations are switched on, so it can
@@ -550,6 +560,47 @@ app.post("/api/bookings", requireAuth("client"), (req, res) => {
 // ---------- payments ----------
 // Flow: owner approves -> advertiser pays -> booking is confirmed. The platform
 // commission is recorded on every paid booking.
+//
+// Confirmation arrives by two independent routes: the browser returning from
+// checkout, and Razorpay's webhook. Either alone is enough, which is the point
+// — the webhook is what saves a booking whose payer closed the tab. They race,
+// so both funnel through markBookingPaid below.
+
+// Flips a booking to paid exactly once, whichever route gets there first, and
+// reports whether this call was the one that did it. The UPDATE is guarded on
+// the booking still being unpaid rather than on a prior SELECT: better-sqlite3
+// runs statements synchronously, so a guarded write is decided atomically and
+// the loser sees changes === 0. Without this the two routes would both log
+// booking_paid and the event log would double-count real revenue.
+function markBookingPaid(booking, paymentId, { req, res, user } = {}) {
+  const result = db
+    .prepare(
+      "UPDATE bookings SET payment_status = 'paid', payment_id = ? WHERE id = ? AND payment_status != 'paid'"
+    )
+    .run(String(paymentId), booking.id);
+  if (result.changes === 0) return false;
+
+  // Ground truth: money actually changed hands at this price. Emitted from
+  // whichever route won, so the event exists even if the browser never came
+  // back. The payer is looked up rather than taken from the session, so the
+  // event is identical either way — the webhook has no session.
+  const payer =
+    user || db.prepare("SELECT id, role FROM users WHERE id = ?").get(booking.client_id) || null;
+
+  track("booking_paid", {
+    req, res, user: payer,
+    listingId: booking.listing_id,
+    bookingId: booking.id,
+    price: (booking.amount_total || 0) / 100,
+    props: {
+      amountTotal: (booking.amount_total || 0) / 100,
+      platformFee: (booking.platform_fee || 0) / 100,
+      startDate: booking.start_date,
+      endDate: booking.end_date,
+    },
+  });
+  return true;
+}
 
 app.post("/api/bookings/:id/pay", requireAuth("client"), async (req, res) => {
   if (!X.razorpayEnabled())
@@ -592,24 +643,56 @@ app.post("/api/bookings/:id/pay/verify", requireAuth("client"), (req, res) => {
   });
   if (!ok) return res.status(400).json({ error: "Payment could not be verified." });
 
-  db.prepare("UPDATE bookings SET payment_status = 'paid', payment_id = ? WHERE id = ?").run(
-    String(paymentId),
-    booking.id
-  );
+  // Not an error if the webhook already confirmed it — the payer still paid,
+  // and this is the same success from their point of view.
+  markBookingPaid(booking, paymentId, { req, res, user: req.user });
+  res.json({ ok: true });
+});
 
-  // Ground truth: money actually changed hands at this price.
-  track("booking_paid", {
-    req, res, user: req.user,
-    listingId: booking.listing_id,
-    bookingId: booking.id,
-    price: (booking.amount_total || 0) / 100,
-    props: {
-      amountTotal: (booking.amount_total || 0) / 100,
-      platformFee: (booking.platform_fee || 0) / 100,
-      startDate: booking.start_date,
-      endDate: booking.end_date,
-    },
-  });
+// Razorpay -> us, server to server. This is the backstop: it does not care
+// whether the payer's browser survived checkout, so a dropped connection or a
+// closed tab no longer leaves real money unrecorded against a booking.
+//
+// Deliberately unauthenticated — the caller is Razorpay, not a logged-in user,
+// so the HMAC over the raw body *is* the authentication. Nothing here trusts
+// the body until that signature checks out.
+app.post("/api/webhooks/razorpay", (req, res) => {
+  if (!X.razorpayWebhookEnabled()) return res.status(404).end();
+
+  if (!X.razorpayVerifyWebhook({ rawBody: req.rawBody, signature: req.get("x-razorpay-signature") }))
+    return res.status(400).json({ error: "Bad signature." });
+
+  const event = req.body || {};
+  const payment = event?.payload?.payment?.entity || {};
+
+  // payment.captured is the only event that means settled money. `authorized`
+  // is a hold, not a capture, and must not confirm a booking.
+  if (event.event !== "payment.captured" || !payment.order_id)
+    return res.json({ ok: true, ignored: true });
+
+  const booking = db
+    .prepare("SELECT * FROM bookings WHERE payment_order_id = ?")
+    .get(payment.order_id);
+
+  // Unknown order: acknowledge anyway. A non-2xx makes Razorpay retry for hours
+  // over something a retry can never fix.
+  if (!booking) {
+    console.error("Razorpay webhook: no booking for order", payment.order_id);
+    return res.json({ ok: true, ignored: true });
+  }
+
+  // Refuse to confirm a booking for the wrong amount. Trusting the webhook's
+  // amount over our own locked quote would let a mispriced order confirm.
+  if (Number(payment.amount) !== booking.amount_total) {
+    console.error(
+      `Razorpay webhook: amount mismatch on booking ${booking.id} —`,
+      `charged ${payment.amount} paise, quoted ${booking.amount_total} paise`
+    );
+    return res.json({ ok: true, ignored: true });
+  }
+
+  const confirmed = markBookingPaid(booking, payment.id, { req });
+  if (confirmed) console.log(`Razorpay webhook confirmed booking ${booking.id}`);
   res.json({ ok: true });
 });
 

@@ -9,6 +9,9 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || "";
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "";
+// Set separately in the Razorpay dashboard when creating the webhook. It is a
+// different secret from the API key secret above, and signs webhook bodies.
+const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || "";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const MAIL_FROM = process.env.MAIL_FROM || "BookMyBoard <onboarding@resend.dev>";
 
@@ -24,7 +27,15 @@ function appUrl(req) {
 
 const googleEnabled = () => Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
 const razorpayEnabled = () => Boolean(RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET);
+const razorpayWebhookEnabled = () => Boolean(RAZORPAY_WEBHOOK_SECRET);
 const emailEnabled = () => Boolean(RESEND_API_KEY);
+
+// Constant-time compare of two hex digests, tolerating length mismatch.
+function digestsMatch(expected, given) {
+  const a = Buffer.from(expected);
+  const b = Buffer.from(String(given || ""));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 // ---------- email ----------
 // Falls back to logging the message when no provider is configured, so the
@@ -117,9 +128,20 @@ function razorpayVerify({ orderId, paymentId, signature }) {
     .createHmac("sha256", RAZORPAY_KEY_SECRET)
     .update(`${orderId}|${paymentId}`)
     .digest("hex");
-  const a = Buffer.from(expected);
-  const b = Buffer.from(String(signature || ""));
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  return digestsMatch(expected, signature);
+}
+
+// Webhooks are signed differently from the checkout callback: the HMAC is over
+// the exact raw request bytes, using the webhook secret. Re-serialising the
+// parsed JSON would change the bytes and break the signature, so this must be
+// handed the original Buffer (see `rawBody` in server.js).
+function razorpayVerifyWebhook({ rawBody, signature }) {
+  if (!razorpayWebhookEnabled() || !rawBody) return false;
+  const expected = crypto
+    .createHmac("sha256", RAZORPAY_WEBHOOK_SECRET)
+    .update(rawBody)
+    .digest("hex");
+  return digestsMatch(expected, signature);
 }
 
 module.exports = {
@@ -128,6 +150,7 @@ module.exports = {
   appUrl,
   googleEnabled,
   razorpayEnabled,
+  razorpayWebhookEnabled,
   emailEnabled,
   sendEmail,
   googleAuthUrl,
@@ -135,4 +158,5 @@ module.exports = {
   splitAmount,
   razorpayCreateOrder,
   razorpayVerify,
+  razorpayVerifyWebhook,
 };

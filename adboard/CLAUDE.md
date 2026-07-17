@@ -79,6 +79,21 @@ Each of these was a real bug or a deliberate defense. Don't regress them.
    the page after deploy.
 7. **No personal/cross-site data in analytics.** No IPs, no user agents, no
    third-party ids. `visitor_id` is a first-party random cookie only.
+8. **A booking is confirmed through `markBookingPaid()`, never by an ad-hoc
+   UPDATE.** The browser return and the Razorpay webhook both report the same
+   payment and *both normally fire* — they race. The guarded write
+   (`WHERE payment_status != 'paid'`) is what makes the second one a no-op. Bypass
+   it and `booking_paid` gets logged twice, which double-counts real revenue in
+   the only dataset a future pricing model can learn from (see invariant 2).
+   Verified by redelivering a webhook and confirming one event, not two.
+9. **The webhook authenticates by HMAC over the raw body — keep `rawBody`
+   intact.** `express.json({ verify })` in `server.js` stashes the original bytes
+   because re-serialising the parsed object does not reproduce them and every
+   signature would fail. The route has no session by design; the signature *is*
+   the auth. Also: only `payment.captured` confirms (`authorized` is a hold, not
+   money), the charged amount is checked against our locked quote, and unknown
+   orders still return 2xx — a non-2xx makes Razorpay retry for hours over
+   something retries can't fix.
 
 ## Design system — and why it looks like this
 
@@ -114,7 +129,11 @@ so don't drift back toward generic SaaS.
   storage later.)
 - **Payments + commission** — quote is **locked at request time** so it can't
   move between request and approval. Owner sees net payout after fee.
-  `PLATFORM_COMMISSION_PCT` default 10.
+  `PLATFORM_COMMISSION_PCT` default 10. Confirmation arrives by **two
+  independent routes** — the browser returning from checkout, and Razorpay's
+  webhook (`POST /api/webhooks/razorpay`). Either alone confirms the booking,
+  so a payer who closes the tab mid-checkout no longer loses their booking.
+  Both funnel through `markBookingPaid()` — see invariant 8.
 - **Suppliers marketplace** — printers/fabricators/LED suppliers/installers.
   This is the "execution" layer where the bad experience actually lives (late
   mounting, no proof), and a second margin source.
@@ -244,9 +263,6 @@ vigyapanmart/shubindia rate guides.
 
 ## Roadmap / next candidates
 
-- **Payment webhook backstop** — today confirmation depends on the browser
-  returning; if the connection drops post-payment the booking may not flip to
-  paid. Needs a Razorpay webhook. **Do this before real money flows.**
 - **CV site verification** (the hackathon's other half) — auto-estimate
   footfall/visibility, confirm specs from a photo. Feeds the measurement
   standard above.
@@ -265,9 +281,17 @@ alone, no code changes:
 | --- | --- | --- |
 | `GOOGLE_CLIENT_ID` / `_SECRET` | Google sign-in | **not set** |
 | `RAZORPAY_KEY_ID` / `_SECRET` | payments + commission | **not set** |
+| `RAZORPAY_WEBHOOK_SECRET` | webhook backstop (route 404s until set) | **not set** |
 | `RESEND_API_KEY` | password-reset emails | **not set** (links print to server log meanwhile) |
 | `ADMIN_TOKEN` | `/api/admin/insights` | **set** |
 | `DATA_DIR=/data` | SQLite persistence | **set**, volume mounted |
+
+Razorpay setup, when the account exists: create the webhook in Dashboard →
+Settings → Webhooks pointing at `<APP_URL>/api/webhooks/razorpay`, subscribe to
+**`payment.captured`**, and set its secret as `RAZORPAY_WEBHOOK_SECRET`.
+**That secret is generated in the webhook form and is *not* the API key secret** —
+mixing them up fails every signature check. `RAZORPAY_KEY_ID`/`_SECRET` alone
+still take payments; the webhook only adds the dropped-connection backstop.
 
 ## Working style that fits this user
 
