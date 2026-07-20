@@ -43,6 +43,11 @@ self.addEventListener("fetch", (event) => {
   if (url.origin === self.location.origin && (url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")))
     return;
 
+  // Never touch video: <video> fetches with Range requests, which the Cache
+  // API can't satisfy (a cached full-body 200 breaks seeking, notably in
+  // Safari), and multi-MB files don't belong in the offline shell anyway.
+  if (url.pathname.startsWith("/videos/") || request.headers.has("range")) return;
+
   // Cross-origin (photography, fonts): let the network handle it.
   if (url.origin !== self.location.origin) return;
 
