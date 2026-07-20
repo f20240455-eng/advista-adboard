@@ -124,7 +124,23 @@ so don't drift back toward generic SaaS.
   blue+orange SaaS default.
 - **No emoji anywhere.** Arrows (→ ←) are fine.
 - **Real photography** (Unsplash, free licence) — no illustrated cartoons, and
-  avoid any image with visible third-party trademarks.
+  avoid any image with visible third-party trademarks. **Never use an image
+  with a stock watermark on it**; covering the watermark is circumventing the
+  licence, not clearing it. This rule has already caught a live violation: the
+  homepage *Billboards* card shipped for a while carrying a real Kaplan
+  Business School ad.
+- **Homepage format cards** (`public/images/formats/*.jpg`) are Unsplash bases
+  with a BookMyBoard creative perspective-composited onto the board face, so
+  the marketplace advertises itself instead of someone else's brand. The
+  build script lives in the scratchpad, not the repo — if these need
+  regenerating, the recipe is: warp the creative onto the board quad, then
+  blend back a **heavily blurred** copy of the original for scene lighting.
+  Blending back an unblurred copy leaves the previous ad's text legible
+  through the new artwork.
+- **Contact address is literal text in 5 files** (`contact/terms/privacy/
+  refunds.html` + the footer in `shared.js`, 10 occurrences). No build step, so
+  changing it is one `sed` across `public/`. Currently a Gmail placeholder —
+  **switch to a domain address once the domain is registered.**
 - **Mobile-first**, verified at 375px. Nav overflow at 375px has bitten twice —
   check it after nav changes.
 - No fake testimonials, fake brand logos, or inflated stats. All were removed

@@ -396,7 +396,7 @@ function renderFooter() {
           <ul>
             <li><a href="/install.html">Get the app</a></li>
             <li><a href="/contact.html">Contact us</a></li>
-            <li><a href="mailto:hello@bookmyboard.in">hello@bookmyboard.in</a></li>
+            <li><a href="mailto:bookmyboard.help@gmail.com">bookmyboard.help@gmail.com</a></li>
             <li>Mon–Sat, 10am–7pm</li>
           </ul>
         </div>
