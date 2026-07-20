@@ -167,12 +167,21 @@ nav {
 /* ---------- format explainer (real photos) ---------- */
 .format-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
 @media (min-width: 720px) { .format-grid { grid-template-columns: repeat(3, 1fr); } }
+/* Each card is a link into browse, pre-filtered to that format. Anchor
+   defaults (brand colour, hover underline) would fight the white label text. */
 .format-card {
   position: relative; border-radius: var(--radius-lg); overflow: hidden;
   aspect-ratio: 4 / 5; border: 1px solid var(--border); box-shadow: var(--shadow-sm);
   animation: fadeUp 0.4s ease both;
+  display: block; color: inherit;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
-.format-card img { width: 100%; height: 100%; object-fit: cover; }
+.format-card:hover, .format-card:focus-visible { text-decoration: none; box-shadow: var(--shadow); transform: translateY(-3px); }
+.format-card:hover img { transform: scale(1.03); }
+.format-card img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.35s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .format-card, .format-card img, .format-card:hover { transition: none; transform: none; }
+}
 .format-card .wash {
   position: absolute; inset: 0;
   background: linear-gradient(180deg, rgba(34,29,21,0) 40%, rgba(20,17,12,0.82) 100%);
@@ -180,6 +189,21 @@ nav {
 .format-card .label { position: absolute; left: 16px; right: 16px; bottom: 16px; color: #fff; }
 .format-card .label .kicker { font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.08em; color: #e8dcc4; font-weight: 600; }
 .format-card .label h3 { font-family: var(--font-head); font-size: 1.35rem; font-weight: 600; margin-top: 2px; }
+
+/* ---------- "can't find a space" demand capture ---------- */
+.want-panel {
+  margin: 34px 0 10px; padding: 22px; background: var(--bg-soft);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+}
+/* Promoted when a search returns nothing — that's when it's the useful action. */
+.want-panel.lead { border-color: var(--brand); background: var(--brand-soft); }
+.want-copy h2 { font-size: 1.2rem; font-weight: 600; margin-bottom: 4px; }
+.want-copy p { color: var(--muted); font-size: 0.92rem; margin-bottom: 16px; max-width: 52ch; }
+.want-row { display: grid; grid-template-columns: 1fr; gap: 0 14px; }
+@media (min-width: 620px) { .want-row { grid-template-columns: 1fr 1fr; } }
+.want-panel .req { color: var(--accent); }
+.want-panel label { font-size: 0.85rem; }
+.want-panel #w-submit { margin-top: 4px; }
 
 .feature-grid { display: grid; grid-template-columns: 1fr; gap: 0; border-top: 1px solid var(--border); }
 @media (min-width: 640px) { .feature-grid { grid-template-columns: repeat(3, 1fr); } }

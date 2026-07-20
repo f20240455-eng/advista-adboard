@@ -50,7 +50,7 @@ adboard/
 
 Tables: `users, listings, bookings, sessions, password_resets, oauth_states,
 vendors, service_requests, blocked_dates, booking_photos, listing_photos,
-user_consents, events`.
+user_consents, space_requests, events`.
 
 Roles: `client` (advertiser), `owner` (has space), `vendor` (printer/fabricator/
 installer). An `is_admin` flag on `users` (set from `ADMIN_EMAILS`, never via any
@@ -223,6 +223,15 @@ already set in Railway.**
 **`zeroResultSearches` is the field that pays off immediately** — it maps demand
 we can't supply, i.e. exactly which owners to go recruit in which city. Useful
 at 10 visitors, not 10,000.
+
+Its explicit counterpart is the **`space_requests` table**: the "Can't find the
+right space?" form on browse, promoted automatically whenever a search returns
+nothing. Where a zero-result search only records the filters someone happened to
+try, this captures the city in their own words *plus a contact* — so demand
+becomes a list of people to call once supply exists. **Open to logged-out
+visitors on purpose**: the most valuable signal comes from people who would have
+bounced rather than sign up. Operators read it in the console under *Wanted
+spaces*, grouped by city.
 
 `modelReadiness` tracks observations vs a rough 300 threshold. It is honest on
 purpose; don't dress it up.

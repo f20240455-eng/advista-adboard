@@ -1135,6 +1135,68 @@ app.get("/api/service-requests", requireAuth(), (req, res) => {
   });
 });
 
+// ---------- unmet demand ----------
+// Someone looked for a space we don't have. The search event log already flags
+// zero-result searches, but that only records the filters a visitor happened to
+// try — and gives no way to tell them when supply arrives. This captures the
+// request in their own words plus a contact, which turns "we have no boards in
+// Balangir" into a list of people waiting for one.
+//
+// Deliberately open to logged-out visitors: demand is most valuable from people
+// who bounced before ever making an account, and requiring signup here would
+// filter out exactly the signal we want.
+app.post("/api/space-requests", (req, res) => {
+  const { city, area, type, maxBudget, contact, notes } = req.body || {};
+  const user = currentUser(req);
+
+  const cityText = String(city || "").trim();
+  if (!cityText) return res.status(400).json({ error: "Please tell us the city or area." });
+  if (cityText.length > 120) return res.status(400).json({ error: "That city name is too long." });
+
+  // Rupees in from the form, paise into the table, per the money invariant.
+  const budgetRupees = Number(maxBudget);
+  const budgetPaise =
+    Number.isFinite(budgetRupees) && budgetRupees > 0
+      ? Math.round(budgetRupees) * 100
+      : null;
+
+  // Signed-in visitors are already reachable; only ask anonymous ones to leave
+  // something, and never overwrite what they typed.
+  const contactText = String(contact || "").trim() || (user ? user.email : "");
+
+  const row = {
+    id: "sr-" + crypto.randomBytes(6).toString("hex"),
+    user_id: user ? user.id : null,
+    city: cityText,
+    area: String(area || "").trim().slice(0, 200) || null,
+    type: String(type || "").trim().slice(0, 60) || null,
+    max_budget: budgetPaise,
+    contact: contactText.slice(0, 200) || null,
+    notes: String(notes || "").trim().slice(0, 1000) || null,
+    status: "open",
+    created_at: new Date().toISOString(),
+  };
+  db.prepare(
+    `INSERT INTO space_requests
+       (id, user_id, city, area, type, max_budget, contact, notes, status, created_at)
+     VALUES (@id, @user_id, @city, @area, @type, @max_budget, @contact, @notes, @status, @created_at)`
+  ).run(row);
+
+  // The demand-side counterpart to listing_created: what buyers wanted and we
+  // couldn't show them. Pair with `search`'s zeroResults to size each gap.
+  track("space_requested", {
+    req, res, user,
+    props: {
+      city: row.city,
+      type: row.type,
+      hasContact: Boolean(row.contact),
+      maxBudget: budgetPaise ? budgetPaise / 100 : null,
+    },
+  });
+
+  res.status(201).json({ ok: true });
+});
+
 // ---------- admin console (private) ----------
 // Everything an operator needs to run the marketplace: event-log insights,
 // bookings oversight, the manual payout ledger, refunds and policy adoption.
@@ -1364,6 +1426,35 @@ app.get("/api/admin/policy", requireAdmin, (req, res) => {
     POLICY_VERSION
   ).n;
   res.json({ policyVersion: POLICY_VERSION, totalUsers, acceptedCurrent: accepted });
+});
+
+// The recruiting list: where demand exists and supply doesn't. Grouped counts
+// come first because "6 people want Balangir" is the number that decides which
+// city to go recruit owners in next.
+app.get("/api/admin/space-requests", requireAdmin, (req, res) => {
+  const rows = db
+    .prepare(`SELECT * FROM space_requests ORDER BY created_at DESC LIMIT 500`)
+    .all();
+  const byCity = db
+    .prepare(
+      `SELECT city, COUNT(*) AS n FROM space_requests
+        WHERE status = 'open' GROUP BY LOWER(city) ORDER BY n DESC, city LIMIT 25`
+    )
+    .all();
+  res.json({
+    byCity,
+    requests: rows.map((r) => ({
+      id: r.id,
+      city: r.city,
+      area: r.area,
+      type: r.type,
+      maxBudgetPaise: r.max_budget,
+      contact: r.contact,
+      notes: r.notes,
+      status: r.status,
+      createdAt: r.created_at,
+    })),
+  });
 });
 
 app.listen(PORT, () => {

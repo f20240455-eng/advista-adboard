@@ -44,6 +44,49 @@
 
     <div class="card-grid" id="grid"></div>
     <div class="empty" id="empty" style="display:none;"></div>
+
+    <!-- Unmet demand. The most useful thing a visitor who finds nothing can do
+         is tell us where to go recruit owners — and leave a way to be told when
+         we have. -->
+    <section class="want-panel" id="want">
+      <div class="want-copy">
+        <h2>Can't find the right space?</h2>
+        <p>Tell us where you need one. We'll go find owners in that area and let you know when a space goes live.</p>
+      </div>
+      <div class="form-error" id="w-err"></div>
+      <div class="form-success" id="w-ok"></div>
+      <div id="w-form">
+        <div class="want-row">
+          <div class="form-group">
+            <label for="w-city">City or area <span class="req">*</span></label>
+            <input id="w-city" placeholder="Balangir" autocomplete="address-level2" />
+          </div>
+          <div class="form-group">
+            <label for="w-type">Format</label>
+            <select id="w-type">
+              <option value="">Any format</option>
+              <option>Billboard</option><option>Unipole</option><option>Digital LED</option>
+              <option>Gantry</option><option>Metro Pillar</option><option>Wall Wrap</option>
+            </select>
+          </div>
+        </div>
+        <div class="want-row">
+          <div class="form-group">
+            <label for="w-budget">Monthly budget (₹)</label>
+            <input id="w-budget" type="number" min="0" inputmode="numeric" placeholder="55000" />
+          </div>
+          <div class="form-group">
+            <label for="w-contact">Email or phone</label>
+            <input id="w-contact" placeholder="So we can tell you when it's live" autocomplete="email" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="w-notes">Anything specific?</label>
+          <textarea id="w-notes" rows="2" placeholder="Near the bus stand, facing highway traffic, needed for September…"></textarea>
+        </div>
+        <button class="btn btn-primary" id="w-submit">Send request</button>
+      </div>
+    </section>
   </div>
 
   <footer></footer>
@@ -62,6 +105,27 @@
     };
     let filtersLoaded = false;
 
+    // Filters can arrive in the URL (the homepage format cards link straight to
+    // a pre-filtered browse). The city/type <select>s are populated from what
+    // actually exists in the DB, so their values can only be applied once that
+    // first response has come back — see the filtersLoaded block in load().
+    const urlParams = new URLSearchParams(location.search);
+    let pending = { city: urlParams.get("city"), type: urlParams.get("type") };
+    els.q.value = urlParams.get("q") || "";
+    if (urlParams.get("maxPrice")) els.price.value = urlParams.get("maxPrice");
+
+    // Keep the address bar in step with the filters so a search is shareable
+    // and the back button behaves.
+    function syncUrl() {
+      const p = new URLSearchParams();
+      if (els.q.value) p.set("q", els.q.value);
+      if (els.city.value !== "all") p.set("city", els.city.value);
+      if (els.type.value !== "all") p.set("type", els.type.value);
+      if (els.price.value) p.set("maxPrice", els.price.value);
+      const qs = p.toString();
+      history.replaceState(null, "", qs ? "?" + qs : location.pathname);
+    }
+
     async function load() {
       const params = new URLSearchParams();
       if (els.q.value) params.set("q", els.q.value);
@@ -74,6 +138,23 @@
         cities.forEach((c) => els.city.insertAdjacentHTML("beforeend", `<option>${c}</option>`));
         types.forEach((t) => els.type.insertAdjacentHTML("beforeend", `<option>${t}</option>`));
         filtersLoaded = true;
+
+        // Apply anything the URL asked for, now that the options exist. A
+        // requested value with no listings behind it has no option to select,
+        // so add it: the honest answer to "show me unipoles" when we have none
+        // is an empty unipole result, not the unfiltered list.
+        let applied = false;
+        for (const [key, sel] of [["city", els.city], ["type", els.type]]) {
+          const want = pending[key];
+          if (!want) continue;
+          if (![...sel.options].some((o) => o.value === want)) {
+            sel.insertAdjacentHTML("beforeend", `<option>${esc(want)}</option>`);
+          }
+          sel.value = want;
+          applied = true;
+        }
+        pending = { city: null, type: null };
+        if (applied) return load();
       }
 
       const sorted = listings.slice();
@@ -87,8 +168,17 @@
       const filtersActive = els.q.value || els.city.value !== "all" || els.type.value !== "all" || els.price.value;
       els.empty.style.display = sorted.length ? "none" : "block";
       els.empty.innerHTML = filtersActive
-        ? "No spaces match those filters. Try widening your search."
+        ? 'No spaces match those filters. <a href="#want" data-want>Tell us what you need →</a>'
         : 'No spaces listed yet in this area. <a href="/login.html?mode=register&role=owner">List the first one →</a>';
+
+      // A zero-result search is exactly when the request form earns its place,
+      // so lead with it and prefill what they were already looking for.
+      document.getElementById("want").classList.toggle("lead", !sorted.length);
+      if (!sorted.length) {
+        if (els.city.value !== "all" && !el("w-city").value) el("w-city").value = els.city.value;
+        if (els.type.value !== "all") el("w-type").value = els.type.value;
+      }
+      syncUrl();
     }
 
     ["input", "change"].forEach((evt) => {
@@ -108,9 +198,58 @@
       load();
     });
 
+    // ---------- "can't find a space" request ----------
+    const el = (id) => document.getElementById(id);
+
+    el("w-submit").addEventListener("click", async () => {
+      const err = el("w-err"), ok = el("w-ok"), btn = el("w-submit");
+      err.style.display = ok.style.display = "none";
+      if (!el("w-city").value.trim()) {
+        err.textContent = "Please tell us the city or area you need.";
+        err.style.display = "block";
+        el("w-city").focus();
+        return;
+      }
+      btn.disabled = true;
+      try {
+        await api("/api/space-requests", {
+          method: "POST",
+          body: JSON.stringify({
+            city: el("w-city").value,
+            type: el("w-type").value,
+            maxBudget: el("w-budget").value,
+            contact: el("w-contact").value,
+            notes: el("w-notes").value,
+          }),
+        });
+        el("w-form").style.display = "none";
+        ok.textContent = "Thanks — we've noted it. We'll get in touch when a space goes live there.";
+        ok.style.display = "block";
+        showToast("Request sent.");
+      } catch (e) {
+        err.textContent = e.message;
+        err.style.display = "block";
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // The empty-state link scrolls to the form rather than jumping, and puts
+    // the cursor where the answer goes.
+    document.addEventListener("click", (e) => {
+      const link = e.target.closest("[data-want]");
+      if (!link) return;
+      e.preventDefault();
+      el("want").scrollIntoView({ behavior: "smooth", block: "center" });
+      setTimeout(() => el("w-city").focus(), 400);
+    });
+
     (async () => {
-      renderNav(await getMe(), "listings");
+      const me = await getMe();
+      renderNav(me, "listings");
       renderFooter();
+      // Signed-in visitors shouldn't have to retype an address we already have.
+      if (me && me.email) el("w-contact").value = me.email;
       load();
     })();
   </script>

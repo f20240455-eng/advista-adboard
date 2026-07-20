@@ -35,6 +35,12 @@
     .pill.owed { background: var(--warn-soft); color: var(--warn); }
     .pill.refunded { background: var(--danger-soft); color: var(--danger); }
     .con-empty { padding: 26px; text-align: center; color: var(--muted); }
+    .want-cities { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .want-cities .wc {
+      background: var(--brand-soft); color: var(--brand-dark); border-radius: 20px;
+      padding: 5px 12px; font-size: 0.82rem; font-weight: 600;
+    }
+    .want-cities .wc b { font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -69,6 +75,13 @@
       <h2>Bookings &amp; payout ledger</h2>
       <p class="hint">Every booking. For paid ones, mark when you've transferred the owner's share to their bank.</p>
       <div class="table-wrap"><table class="grid" id="bk-table"></table></div>
+    </div>
+
+    <div class="con-section">
+      <h2>Wanted spaces — the recruiting list</h2>
+      <p class="hint">Advertisers who looked for a space we don't have. Sorted by city: the top row is where signing up owners next is worth the most.</p>
+      <div id="want-cities" class="want-cities"></div>
+      <div class="table-wrap"><table class="grid" id="want-table"></table></div>
     </div>
   </div>
 
@@ -172,12 +185,42 @@
       try { renderTiles(await api("/api/admin/overview")); } catch {}
     }
 
+    async function loadWanted() {
+      const { requests, byCity } = await api("/api/admin/space-requests");
+
+      el("want-cities").innerHTML = byCity
+        .map((c) => `<span class="wc">${esc(c.city)} <b>${c.n}</b></span>`)
+        .join("");
+
+      const t = el("want-table");
+      if (!requests.length) {
+        t.outerHTML =
+          '<div class="table-wrap"><div class="con-empty">No requests yet. These appear when someone searches for a space we don\'t have and tells us what they needed.</div></div>';
+        return;
+      }
+      t.innerHTML =
+        `<thead><tr>
+           <th>City / area</th><th>Format</th><th class="num">Budget</th>
+           <th>Contact</th><th>Notes</th><th>When</th>
+         </tr></thead><tbody>` +
+        requests.map((r) => `<tr>
+            <td>${esc(r.city)}${r.area ? `<div class="muted">${esc(r.area)}</div>` : ""}</td>
+            <td>${r.type ? esc(r.type) : '<span class="muted">Any</span>'}</td>
+            <td class="num">${r.maxBudgetPaise ? rupees(r.maxBudgetPaise) : '<span class="muted">—</span>'}</td>
+            <td>${r.contact
+              ? `<a href="mailto:${esc(r.contact)}">${esc(r.contact)}</a>`
+              : '<span class="muted">not left</span>'}</td>
+            <td style="white-space:normal; max-width:280px;">${r.notes ? esc(r.notes) : '<span class="muted">—</span>'}</td>
+            <td class="muted">${esc((r.createdAt || "").slice(0, 10))}</td>
+          </tr>`).join("") + "</tbody>";
+    }
+
     async function showConsole() {
       el("gate").style.display = "none";
       el("console").style.display = "block";
       el("op-logout").style.display = "inline-flex";
       try { const m = await api("/api/admin/me"); if (m.name) el("op-who").textContent = m.name; } catch {}
-      await Promise.all([loadOverview(), loadPolicy(), loadBookings()]);
+      await Promise.all([loadOverview(), loadPolicy(), loadBookings(), loadWanted()]);
     }
 
     el("g-submit").addEventListener("click", async () => {

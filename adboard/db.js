@@ -150,6 +150,27 @@ db.exec(`
     created_at TEXT NOT NULL
   );
 
+  -- Demand we could not supply, stated in the visitor's own words. The search
+  -- event log already records zero-result searches, but that only captures the
+  -- filters someone happened to try. This is the explicit version: which city,
+  -- which format, what budget, and — crucially — a way to reach them once we
+  -- recruit an owner there. It is the recruiting list.
+  CREATE TABLE IF NOT EXISTS space_requests (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT,
+    city       TEXT NOT NULL,
+    area       TEXT,
+    type       TEXT,
+    -- paise, integer, like all money in this schema
+    max_budget INTEGER,
+    contact    TEXT,
+    notes      TEXT,
+    status     TEXT NOT NULL DEFAULT 'open',
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_space_requests_time ON space_requests(created_at);
+
   -- Marketplace event log. This is the training set for future pricing and
   -- demand models, so the rules are deliberate:
   --
